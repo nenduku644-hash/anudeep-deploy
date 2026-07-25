@@ -22,8 +22,13 @@ try {
   multer = require('multer');
   fetch = require('node-fetch');
   FormData = require('form-data');
+  // Ensure tmp directory exists
+  const tmpDir = path.join(__dirname, 'tmp');
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
   // Temp upload storage for incoming PDF from client
-  upload = multer({ dest: path.join(__dirname, 'tmp') });
+  upload = multer({ dest: tmpDir });
 } catch (e) {
   HAS_UPLOAD_SUPPORT = false;
   console.warn('Optional upload dependencies missing. To enable Telegram PDF upload, run: npm install multer node-fetch@2 form-data');
@@ -71,6 +76,49 @@ mongoose.connect(MONGO_URI)
 // Invoice schema (flexible to accept existing JSON shape)
 const InvoiceSchema = new mongoose.Schema({}, { strict: false, id: false });
 const Invoice = mongoose.model('Invoice', InvoiceSchema);
+
+const ProductSchema = new mongoose.Schema({
+  id: { type: Number, required: true, unique: true },
+  name: { type: String, required: true },
+  hsn: { type: String },
+  price: { type: Number, default: 0 }
+}, { strict: false });
+const Product = mongoose.model('Product', ProductSchema);
+
+const ReceiverSchema = new mongoose.Schema({
+  id: { type: Number, required: true, unique: true },
+  name: { type: String, required: true },
+  address: { type: String },
+  state: { type: String },
+  gstin: { type: String },
+  statecode: { type: String }
+}, { strict: false });
+const Receiver = mongoose.model('Receiver', ReceiverSchema);
+
+const ConsigneeSchema = new mongoose.Schema({
+  id: { type: Number, required: true, unique: true },
+  name: { type: String, required: true },
+  address: { type: String },
+  state: { type: String },
+  gstin: { type: String },
+  statecode: { type: String }
+}, { strict: false });
+const Consignee = mongoose.model('Consignee', ConsigneeSchema);
+
+const SettingsSchema = new mongoose.Schema({
+  nextInvoiceNo: { type: Number, default: 1 },
+  inactivityTimeout: { type: Number, default: 300000 },
+  telegram: {
+    token: { type: String, default: '8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac' },
+    chatId: { type: String, default: '6877857251' }
+  },
+  emailSettings: {
+    defaultCC: { type: String, default: '' },
+    subjectPrefix: { type: String, default: 'Tax Invoice' }
+  }
+}, { strict: false });
+const Settings = mongoose.model('Settings', SettingsSchema);
+
 
 // REST endpoints for invoices
 // GET all invoices (newest first)
@@ -146,6 +194,221 @@ app.delete('/api/invoices/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete invoice' });
+  }
+});
+
+// REST endpoints for products
+// GET all products
+app.get('/api/products', async (req, res) => {
+  try {
+    const products = await Product.find().sort({ name: 1 });
+    return res.json(products);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to fetch products' });
+  }
+});
+
+// GET single product by id
+app.get('/api/products/:id', async (req, res) => {
+  try {
+    const p = await Product.findOne({ id: Number(req.params.id) });
+    if (!p) return res.status(404).json({ error: 'Product not found' });
+    res.json(p);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch product' });
+  }
+});
+
+// POST create product
+app.post('/api/products', async (req, res) => {
+  try {
+    const doc = new Product(req.body);
+    await doc.save();
+    res.json({ success: true, product: doc });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save product' });
+  }
+});
+
+// PUT update product
+app.put('/api/products/:id', async (req, res) => {
+  try {
+    const updated = await Product.findOneAndUpdate({ id: Number(req.params.id) }, req.body, { new: true });
+    if (!updated) return res.status(404).json({ error: 'Product not found' });
+    res.json({ success: true, product: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update product' });
+  }
+});
+
+// DELETE product
+app.delete('/api/products/:id', async (req, res) => {
+  try {
+    const result = await Product.deleteOne({ id: Number(req.params.id) });
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete product' });
+  }
+});
+
+// REST endpoints for receivers
+// GET all receivers
+app.get('/api/receivers', async (req, res) => {
+  try {
+    const receivers = await Receiver.find().sort({ name: 1 });
+    return res.json(receivers);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to fetch receivers' });
+  }
+});
+
+// POST create receiver
+app.post('/api/receivers', async (req, res) => {
+  try {
+    const doc = new Receiver(req.body);
+    await doc.save();
+    res.json({ success: true, receiver: doc });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save receiver' });
+  }
+});
+
+// PUT update receiver
+app.put('/api/receivers/:id', async (req, res) => {
+  try {
+    const updated = await Receiver.findOneAndUpdate({ id: Number(req.params.id) }, req.body, { new: true });
+    if (!updated) return res.status(404).json({ error: 'Receiver not found' });
+    res.json({ success: true, receiver: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update receiver' });
+  }
+});
+
+// DELETE receiver
+app.delete('/api/receivers/:id', async (req, res) => {
+  try {
+    const result = await Receiver.deleteOne({ id: Number(req.params.id) });
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete receiver' });
+  }
+});
+
+// REST endpoints for consignees
+// GET all consignees
+app.get('/api/consignees', async (req, res) => {
+  try {
+    const consignees = await Consignee.find().sort({ name: 1 });
+    return res.json(consignees);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to fetch consignees' });
+  }
+});
+
+// POST create consignee
+app.post('/api/consignees', async (req, res) => {
+  try {
+    const doc = new Consignee(req.body);
+    await doc.save();
+    res.json({ success: true, consignee: doc });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save consignee' });
+  }
+});
+
+// PUT update consignee
+app.put('/api/consignees/:id', async (req, res) => {
+  try {
+    const updated = await Consignee.findOneAndUpdate({ id: Number(req.params.id) }, req.body, { new: true });
+    if (!updated) return res.status(404).json({ error: 'Consignee not found' });
+    res.json({ success: true, consignee: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update consignee' });
+  }
+});
+
+// DELETE consignee
+app.delete('/api/consignees/:id', async (req, res) => {
+  try {
+    const result = await Consignee.deleteOne({ id: Number(req.params.id) });
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete consignee' });
+  }
+});
+
+// REST endpoints for settings
+// GET settings (returns single global settings doc)
+app.get('/api/settings', async (req, res) => {
+  try {
+    let settings = await Settings.findOne();
+    if (!settings) {
+      settings = new Settings({
+        nextInvoiceNo: 1,
+        inactivityTimeout: 300000,
+        telegram: {
+          token: '8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac',
+          chatId: '6877857251'
+        },
+        emailSettings: {
+          defaultCC: '',
+          subjectPrefix: 'Tax Invoice'
+        }
+      });
+      await settings.save();
+    }
+    res.json(settings);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+// PUT settings
+app.put('/api/settings', async (req, res) => {
+  try {
+    let settings = await Settings.findOne();
+    if (!settings) {
+      settings = new Settings({});
+    }
+    if (req.body.nextInvoiceNo !== undefined) settings.nextInvoiceNo = req.body.nextInvoiceNo;
+    if (req.body.inactivityTimeout !== undefined) settings.inactivityTimeout = req.body.inactivityTimeout;
+    
+    if (req.body.telegram) {
+      settings.telegram = {
+        ...settings.telegram,
+        ...req.body.telegram
+      };
+    }
+    
+    if (req.body.emailSettings) {
+      settings.emailSettings = {
+        ...settings.emailSettings,
+        ...req.body.emailSettings
+      };
+    }
+    
+    settings.markModified('telegram');
+    settings.markModified('emailSettings');
+    
+    await settings.save();
+    res.json({ success: true, settings });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update settings' });
   }
 });
 

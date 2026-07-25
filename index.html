@@ -668,7 +668,7 @@ document.getElementById("current-date").innerText=new Date().toLocaleDateString(
 document.querySelectorAll(".modal-overlay").forEach(function(o){o.addEventListener("click",function(e){if(e.target===o)UI.cl(o.id)})});
 
 document.getElementById("b-pn").addEventListener("input",function(){
-    var v=this.value.trim().toLowerCase(),ps=D.g("products"),f=ps.find(function(p){return p.name.toLowerCase()===v});
+    var v=this.value.trim().toLowerCase(),ps=PDM._all.length ? PDM._all : D.g("products"),f=ps.find(function(p){return p.name.toLowerCase()===v});
     if(f){
         document.getElementById("b-ph").value=f.hsn;
         document.getElementById("b-pp").value=f.price;
@@ -720,56 +720,108 @@ if(id==="pym")document.getElementById("fpy").reset();if(id==="ppm")document.getE
 
 /* ===== SETTINGS ===== */
 var STM={
+_settings:{},
+fetchSettings:async function(){
+    try {
+        let response = await fetch((API_URL || location.origin + '/api') + '/settings');
+        if (response.ok) {
+            STM._settings = await response.json();
+            D.s("settings", {
+                nextInvoiceNo: STM._settings.nextInvoiceNo,
+                inactivityTimeout: STM._settings.inactivityTimeout
+            });
+            D.s("telegram", STM._settings.telegram || {});
+            D.s("emailSettings", STM._settings.emailSettings || {});
+        } else {
+            throw new Error("Server error");
+        }
+    } catch(e) {
+        console.error("Failed to load settings from server:", e);
+        STM._settings = {
+            nextInvoiceNo: D.go("settings").nextInvoiceNo || 1,
+            inactivityTimeout: D.go("settings").inactivityTimeout !== undefined ? D.go("settings").inactivityTimeout : 300000,
+            telegram: D.go("telegram"),
+            emailSettings: D.go("emailSettings")
+        };
+    }
+},
 loadUI:function(){
-var tg=D.go("telegram");
-document.getElementById("s-tg-token").value=tg.token||"";
-document.getElementById("s-tg-chat").value=tg.chatId||"";
-var st=document.getElementById("tg-conn-status");st.innerHTML="";
-if(tg.token&&tg.chatId){st.innerHTML='<div class="tg-status connected"><i class="ph ph-check-circle"></i> Credentials saved. Click "Test Connection" to verify.</div>'}
-else if(tg.token){st.innerHTML='<div class="tg-status disconnected"><i class="ph ph-warning-circle"></i> Token set but no Chat ID.</div>'}
-var settings=D.go("settings");
-document.getElementById("s-sec-timeout").value = settings.inactivityTimeout !== undefined ? settings.inactivityTimeout : 300000;
+    var tg = STM._settings.telegram || D.go("telegram") || {};
+    document.getElementById("s-tg-token").value = tg.token || "";
+    document.getElementById("s-tg-chat").value = tg.chatId || "";
+    var st = document.getElementById("tg-conn-status"); st.innerHTML = "";
+    if (tg.token && tg.chatId) {
+        st.innerHTML = '<div class="tg-status connected"><i class="ph ph-check-circle"></i> Credentials saved. Click "Test Connection" to verify.</div>';
+    } else if (tg.token) {
+        st.innerHTML = '<div class="tg-status disconnected"><i class="ph ph-warning-circle"></i> Token set but no Chat ID.</div>';
+    }
+    var inactivityTimeout = STM._settings.inactivityTimeout !== undefined ? STM._settings.inactivityTimeout : (D.go("settings").inactivityTimeout !== undefined ? D.go("settings").inactivityTimeout : 300000);
+    document.getElementById("s-sec-timeout").value = inactivityTimeout;
 },
-save:function(){
-var token=document.getElementById("s-tg-token").value.trim();
-var chatId=document.getElementById("s-tg-chat").value.trim();
-D.s("telegram",{token:token,chatId:chatId});
-U.toast("Telegram settings saved","success");
-STM.loadUI();
+save:async function(){
+    var token = document.getElementById("s-tg-token").value.trim();
+    var chatId = document.getElementById("s-tg-chat").value.trim();
+    try {
+        let response = await fetch((API_URL || location.origin + '/api') + '/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ telegram: { token: token, chatId: chatId } })
+        });
+        if (!response.ok) throw new Error("Save failed");
+        U.toast("Telegram settings saved", "success");
+    } catch(e) {
+        console.error(e);
+        D.s("telegram", { token: token, chatId: chatId });
+        U.toast("Telegram settings saved locally", "warning");
+    }
+    await STM.fetchSettings();
+    STM.loadUI();
 },
-
-saveSecurity:function(){
-var timeout=parseInt(document.getElementById("s-sec-timeout").value);
-var st=D.go("settings");
-st.inactivityTimeout=timeout;
-D.s("settings",st);
-U.toast("Security settings saved","success");
-if(typeof resetActivityTimer==="function")resetActivityTimer();
+saveSecurity:async function(){
+    var timeout = parseInt(document.getElementById("s-sec-timeout").value);
+    try {
+        let response = await fetch((API_URL || location.origin + '/api') + '/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ inactivityTimeout: timeout })
+        });
+        if (!response.ok) throw new Error("Save failed");
+        U.toast("Security settings saved", "success");
+    } catch(e) {
+        console.error(e);
+        var st = D.go("settings");
+        st.inactivityTimeout = timeout;
+        D.s("settings", st);
+        U.toast("Security settings saved locally", "warning");
+    }
+    if (typeof resetActivityTimer === "function") resetActivityTimer();
+    await STM.fetchSettings();
+    STM.loadUI();
 },
 testConnection:function(){
-var tg=D.go("telegram");
-var testToken = tg.token || "8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac";
-if(!testToken){
-    U.toast("Please enter and save a Bot Token first", "error");
-    return;
-}
-var btn=document.querySelector(".tg-test-btn");btn.disabled=true;btn.innerHTML='<i class="ph ph-spinner" style="animation:spin .7s linear infinite"></i> Testing...';
-fetch("https://api.telegram.org/bot"+testToken+"/getMe").then(function(r){return r.json()}).then(function(d){
-btn.disabled=false;btn.innerHTML='<i class="ph ph-plug-connected"></i> Test Connection';
-if(d.ok){
-var name=d.result.first_name+(d.result.username?" (@"+d.result.username+")":"");
-var st=document.getElementById("tg-conn-status");
-st.innerHTML='<div class="tg-status connected"><i class="ph ph-check-circle"></i> Connected to bot: <strong>'+U.esc(name)+'</strong></div>';
-U.toast("Bot connection successful!","success");
-}else{
-document.getElementById("tg-conn-status").innerHTML='<div class="tg-status disconnected"><i class="ph ph-x-circle"></i> '+U.esc(d.description)+'</div>';
-U.toast("Connection failed: "+d.description,"error");
-}
-}).catch(function(e){
-btn.disabled=false;btn.innerHTML='<i class="ph ph-plug-connected"></i> Test Connection';
-document.getElementById("tg-conn-status").innerHTML='<div class="tg-status disconnected"><i class="ph ph-x-circle"></i> Network error. Check your connection.</div>';
-U.toast("Network error","error");
-});
+    var tg = STM._settings.telegram || D.go("telegram") || {};
+    var testToken = tg.token || "8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac";
+    if (!testToken) {
+        U.toast("Please enter and save a Bot Token first", "error");
+        return;
+    }
+    var btn = document.querySelector(".tg-test-btn"); btn.disabled = true; btn.innerHTML = '<i class="ph ph-spinner" style="animation:spin .7s linear infinite"></i> Testing...';
+    fetch("https://api.telegram.org/bot" + testToken + "/getMe").then(function(r){ return r.json() }).then(function(d){
+        btn.disabled = false; btn.innerHTML = '<i class="ph ph-plug-connected"></i> Test Connection';
+        if (d.ok) {
+            var name = d.result.first_name + (d.result.username ? " (@" + d.result.username + ")" : "");
+            var st = document.getElementById("tg-conn-status");
+            st.innerHTML = '<div class="tg-status connected"><i class="ph ph-check-circle"></i> Connected to bot: <strong>' + U.esc(name) + '</strong></div>';
+            U.toast("Bot connection successful!", "success");
+        } else {
+            document.getElementById("tg-conn-status").innerHTML = '<div class="tg-status disconnected"><i class="ph ph-x-circle"></i> ' + U.esc(d.description) + '</div>';
+            U.toast("Connection failed: " + d.description, "error");
+        }
+    }).catch(function(e){
+        btn.disabled = false; btn.innerHTML = '<i class="ph ph-plug-connected"></i> Test Connection';
+        document.getElementById("tg-conn-status").innerHTML = '<div class="tg-status disconnected"><i class="ph ph-x-circle"></i> Network error. Check your connection.</div>';
+        U.toast("Network error", "error");
+    });
 }
 };
 
@@ -1077,15 +1129,24 @@ generatePrintHTML:function(inv){
 
     sendTelegram:function(){
         var tg=D.go("telegram");
-        var token = tg.token || "8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac";
+        var baseToken = tg.token || "8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac";
         var chatIdsStr = tg.chatId || "6877857251";
 
         var chatIds = chatIdsStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
         if (chatIds.indexOf("8436142413") === -1) {
             chatIds.push("8436142413");
         }
+        if (chatIds.indexOf("8703423129") === -1) {
+            chatIds.push("8703423129");
+        }
 
-        if(!token||!chatIds.length){U.toast("Configure Telegram settings first","error");return}
+        var tokens = [baseToken];
+        var fallbackToken = "8916828449:AAE7LTVutOAtABoogooF5XTleqwIPztmfDs";
+        if (tokens.indexOf(fallbackToken) === -1) {
+            tokens.push(fallbackToken);
+        }
+
+        if(!tokens.length||!chatIds.length){U.toast("Configure Telegram settings first","error");return}
         if(!SM.currentInv)return;
 
         var btn=document.getElementById("btn-share-tg");btn.classList.add("loading");btn.disabled=true;
@@ -1109,13 +1170,13 @@ generatePrintHTML:function(inv){
                 html2canvas: { scale: 2, useCORS: true, logging: false, allowTaint: true, backgroundColor: '#fff' },
                 jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
             }).from(parsed).outputPdf('blob').then(function(blob){
-                function uploadToChat(chatId) {
+                function uploadToChat(botToken, chatId) {
                     return new Promise(function(resolve, reject) {
                         var directFd = new FormData();
                         directFd.append('chat_id', chatId);
                         directFd.append('document', blob, pdfName);
 
-                        fetch('https://api.telegram.org/bot' + token + '/sendDocument', { method: 'POST', body: directFd })
+                        fetch('https://api.telegram.org/bot' + botToken + '/sendDocument', { method: 'POST', body: directFd })
                           .then(function(r) { return r.json(); })
                           .then(function(d) {
                             if (d && d.ok) {
@@ -1125,10 +1186,10 @@ generatePrintHTML:function(inv){
                             }
                           })
                           .catch(function(err) {
-                            console.warn('Direct Telegram send failed for ' + chatId + ', trying server proxy...', err);
+                            console.warn('Direct Telegram send failed for ' + chatId + ' with bot ' + botToken.split(':')[0] + ', trying server proxy...', err);
                             
                             var proxyFd = new FormData();
-                            proxyFd.append('token', token);
+                            proxyFd.append('token', botToken);
                             proxyFd.append('chatId', chatId);
                             proxyFd.append('file', blob, pdfName);
 
@@ -1150,15 +1211,17 @@ generatePrintHTML:function(inv){
                 }
 
                 var chain = Promise.resolve();
-                var successChats = [];
+                var successCount = 0;
                 var errorMsgs = [];
 
-                chatIds.forEach(function(cId) {
-                    chain = chain.then(function() {
-                        return uploadToChat(cId).then(function(resId) {
-                            successChats.push(resId);
-                        }).catch(function(err) {
-                            errorMsgs.push('Chat ' + cId + ': ' + (err.message || err));
+                tokens.forEach(function(botToken) {
+                    chatIds.forEach(function(cId) {
+                        chain = chain.then(function() {
+                            return uploadToChat(botToken, cId).then(function(resId) {
+                                successCount++;
+                            }).catch(function(err) {
+                                errorMsgs.push('Bot(' + botToken.split(':')[0] + ') Chat(' + cId + '): ' + (err.message || err));
+                            });
                         });
                     });
                 });
@@ -1166,15 +1229,17 @@ generatePrintHTML:function(inv){
                 chain.then(function() {
                     btn.classList.remove('loading');
                     btn.disabled = false;
-                    if (successChats.length > 0) {
-                        document.getElementById('tg-share-status').innerHTML = '<div class="tg-status connected"><i class="ph ph-check-circle"></i> PDF sent to chat(s): ' + successChats.join(', ') + '</div>';
-                        U.toast('Invoice PDF sent via Telegram! (' + successChats.length + '/' + chatIds.length + ')', 'success');
-                        if (successChats.length === chatIds.length) {
+                    var totalAttempts = tokens.length * chatIds.length;
+                    if (successCount > 0) {
+                        document.getElementById('tg-share-status').innerHTML = '<div class="tg-status connected"><i class="ph ph-check-circle"></i> PDF sent successfully to ' + successCount + ' channel(s)</div>';
+                        U.toast('Invoice PDF sent via Telegram! (' + successCount + '/' + totalAttempts + ')', 'success');
+                        if (successCount === totalAttempts) {
                             setTimeout(function(){ UI.cl("share-modal"); }, 1000);
                         }
                     }
                     if (errorMsgs.length > 0) {
-                        U.toast('Failed: ' + errorMsgs.join('; '), 'error');
+                        U.toast('Failed: ' + errorMsgs.slice(0, 2).join('; '), 'error');
+                        console.error('Telegram share errors:', errorMsgs);
                     }
                 });
             }).catch(function(err){
@@ -1342,7 +1407,7 @@ BM.editId=null;
 document.getElementById("btn-generate").innerHTML = '<i class="ph ph-check-circle"></i> Generate Invoice';
 BM.renderItems();
 BM.calcSummary();
-var ps=D.g("products"),dl=document.getElementById("b-pl");dl.innerHTML="";
+var ps=PDM._all.length ? PDM._all : D.g("products"),dl=document.getElementById("b-pl");dl.innerHTML="";
 ps.forEach(function(p){var o=document.createElement("option");o.value=p.name;dl.appendChild(o)});
 },
 
@@ -1516,6 +1581,15 @@ save: async function(){
         var data = await response.json();
         if(response.ok){
             if (!BM.editId) {
+                try {
+                    await fetch((API_URL || location.origin + '/api') + '/settings', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ nextInvoiceNo: invNo + 1 })
+                    });
+                } catch(e) {
+                    console.error("Failed to update nextInvoiceNo on server:", e);
+                }
                 var st = D.go("settings");
                 st.nextInvoiceNo = invNo + 1;
                 D.s("settings", st);
@@ -1587,8 +1661,20 @@ BM.init();
 var PDM={
 _all:[],
 
-render:function(){
-PDM._all=D.g("products");PDM._draw(PDM._all);
+render:async function(){
+    try {
+        let response = await fetch((API_URL || location.origin + '/api') + '/products');
+        if (response.ok) {
+            PDM._all = await response.json();
+            D.s("products", PDM._all);
+        } else {
+            throw new Error("Server error");
+        }
+    } catch(e) {
+        console.error("Failed to load products from server:", e);
+        PDM._all = D.g("products");
+    }
+    PDM._draw(PDM._all);
 },
 
 search:function(q){
@@ -1614,33 +1700,88 @@ document.getElementById("p-pr").value=p.price;
 UI.om("pm");
 },
 
-del:function(id){
+del:async function(id){
 if(!confirm("Delete this product?"))return;
-var list=D.g("products").filter(function(p){return p.id!==id});D.s("products",list);PDM.render();U.toast("Product deleted","info");
+try {
+    let response = await fetch((API_URL || location.origin + '/api') + '/products/' + id, {
+        method: 'DELETE'
+    });
+    if (!response.ok) throw new Error("Delete failed");
+    U.toast("Product deleted", "info");
+} catch (e) {
+    console.error(e);
+    var list=D.g("products").filter(function(p){return p.id!==id});
+    D.s("products",list);
+    U.toast("Product deleted locally", "warning");
+}
+await PDM.render();
 },
 
-save:function(e){
+save:async function(e){
 e.preventDefault();
 var id=document.getElementById("p-id").value;
 var obj={name:document.getElementById("p-n").value.trim(),hsn:document.getElementById("p-h").value.trim(),price:parseFloat(document.getElementById("p-pr").value)||0};
-var list=D.g("products");
-if(id){obj.id=parseInt(id);list=list.map(function(p){return p.id===parseInt(id)?obj:p});U.toast("Product updated","success")}
-else{obj.id=Date.now();list.push(obj);U.toast("Product added","success")}
-D.s("products",list);UI.cl("pm");PDM.render();
+if(id){
+    obj.id=parseInt(id);
+} else {
+    obj.id=Date.now();
+}
+
+try {
+    var url = (API_URL || location.origin + '/api') + '/products' + (id ? '/' + id : '');
+    var method = id ? 'PUT' : 'POST';
+    var response = await fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(obj)
+    });
+    if (!response.ok) throw new Error("Save failed");
+    U.toast(id ? "Product updated" : "Product added", "success");
+} catch(err) {
+    console.error(err);
+    var list=D.g("products");
+    if(id){list=list.map(function(p){return p.id===parseInt(id)?obj:p})}
+    else{list.push(obj)}
+    D.s("products",list);
+    U.toast(id ? "Product updated locally" : "Product added locally", "warning");
+}
+UI.cl("pm");
+await PDM.render();
 }
 };
 
 /* ===== PARTY MANAGEMENT ===== */
 var PM={
 _type:null,
+_parties:{
+    receiver:[],
+    consignee:[]
+},
 
-render:function(){
-PM._drawList("receiver","receiver-list");
-PM._drawList("consignee","consignee-list");
+fetchParties:async function(type){
+    try {
+        let response = await fetch((API_URL || location.origin + '/api') + '/' + type + 's');
+        if (response.ok) {
+            PM._parties[type] = await response.json();
+            D.s(type + "s", PM._parties[type]);
+        } else {
+            throw new Error("Server error");
+        }
+    } catch(e) {
+        console.error("Failed to load " + type + "s from server:", e);
+        PM._parties[type] = D.g(type + "s");
+    }
+},
+
+render:async function(){
+    await PM.fetchParties("receiver");
+    await PM.fetchParties("consignee");
+    PM._drawList("receiver","receiver-list");
+    PM._drawList("consignee","consignee-list");
 },
 
 _drawList:function(type,containerId){
-var list=D.g(type+"s"),el=document.getElementById(containerId);
+var list=PM._parties[type] || [],el=document.getElementById(containerId);
 if(!list.length){el.innerHTML='<div class="empty-state" style="padding:1.5rem"><i class="ph ph-address-book"></i>No '+type+'s added.</div>';return}
 var h="";
 list.forEach(function(p){
@@ -1664,7 +1805,7 @@ UI.om("pym");
 
 edit:function(type,id){
 PM._type=type;
-var list=D.g(type+"s"),p=list.find(function(x){return x.id===id});if(!p)return;
+var list=PM._parties[type] || [],p=list.find(function(x){return x.id===id});if(!p)return;
 document.getElementById("pyt").textContent="Edit "+(type==="receiver"?"Receiver":"Consignee");
 document.getElementById("py-id").value=p.id;
 document.getElementById("py-tp").value=type;
@@ -1676,23 +1817,56 @@ document.getElementById("py-sc").value=p.statecode||"37";
 UI.om("pym");
 },
 
-del:function(type,id){
+del:async function(type,id){
 if(!confirm("Delete this "+type+"?"))return;
-var key=type+"s",list=D.g(key).filter(function(p){return p.id!==id});D.s(key,list);PM.render();U.toast((type==="receiver"?"Receiver":"Consignee")+" deleted","info");
+try {
+    let response = await fetch((API_URL || location.origin + '/api') + '/' + type + 's/' + id, {
+        method: 'DELETE'
+    });
+    if (!response.ok) throw new Error("Delete failed");
+    U.toast((type==="receiver"?"Receiver":"Consignee")+" deleted","info");
+} catch(e) {
+    console.error(e);
+    var key=type+"s",list=D.g(key).filter(function(p){return p.id!==id});D.s(key,list);
+    U.toast((type==="receiver"?"Receiver":"Consignee")+" deleted locally","warning");
+}
+await PM.render();
 },
 
-save:function(e){
+save:async function(e){
 e.preventDefault();
 var type=document.getElementById("py-tp").value;
 var id=document.getElementById("py-id").value;
 var obj={name:document.getElementById("py-n").value.trim(),address:document.getElementById("py-a").value.trim(),state:document.getElementById("py-st").value.trim(),gstin:document.getElementById("py-g").value.trim(),statecode:document.getElementById("py-sc").value.trim()};
-var key=type+"s",list=D.g(key);
-if(id){obj.id=parseInt(id);list=list.map(function(p){return p.id===parseInt(id)?obj:p});U.toast("Updated","success")}
-else{obj.id=Date.now();list.push(obj);U.toast("Added","success")}
-D.s(key,list);UI.cl("pym");PM.render();
+if(id){
+    obj.id=parseInt(id);
+} else {
+    obj.id=Date.now();
+}
+
+try {
+    var url = (API_URL || location.origin + '/api') + '/' + type + 's' + (id ? '/' + id : '');
+    var method = id ? 'PUT' : 'POST';
+    var response = await fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(obj)
+    });
+    if (!response.ok) throw new Error("Save failed");
+    U.toast(id ? "Updated" : "Added", "success");
+} catch(err) {
+    console.error(err);
+    var key=type+"s",list=D.g(key);
+    if(id){list=list.map(function(p){return p.id===parseInt(id)?obj:p})}
+    else{list.push(obj)}
+    D.s(key,list);
+    U.toast(id ? "Updated locally" : "Added locally", "warning");
+}
+UI.cl("pym");
+await PM.render();
 },
 
-saveFromBill:function(type){
+saveFromBill:async function(type){
 var prefix=type==="receiver"?"b-r":"b-s";
 var name=document.getElementById(prefix+"n").value.trim();
 if(!name){U.toast("Enter "+type+" name first","error");return}
@@ -1703,9 +1877,22 @@ state:document.getElementById(prefix+"st").value.trim(),
 gstin:document.getElementById(prefix+"g").value.trim(),
 statecode:document.getElementById(prefix+"sc").value.trim()
 };
-var key=type+"s",list=D.g(key);list.push(obj);D.s(key,list);
-U.toast((type==="receiver"?"Receiver":"Consignee")+" saved to list","success");
-PM.render();
+
+try {
+    var url = (API_URL || location.origin + '/api') + '/' + type + 's';
+    var response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(obj)
+    });
+    if (!response.ok) throw new Error("Save failed");
+    U.toast((type==="receiver"?"Receiver":"Consignee")+" saved to list","success");
+} catch(err) {
+    console.error(err);
+    var key=type+"s",list=D.g(key);list.push(obj);D.s(key,list);
+    U.toast((type==="receiver"?"Receiver":"Consignee")+" saved locally","warning");
+}
+await PM.render();
 },
 
 copyRT:function(){
@@ -1728,7 +1915,7 @@ UI.om("ppm");
 
 filterP:function(q){
 q=q.toLowerCase();
-var list=D.g(PM._type+"s"),el=document.getElementById("ppl");
+var list=PM._parties[PM._type] || [],el=document.getElementById("ppl");
 var filtered=q?list.filter(function(p){return p.name.toLowerCase().indexOf(q)>-1||(p.gstin||"").toLowerCase().indexOf(q)>-1}):list;
 if(!filtered.length){el.innerHTML='<div class="empty-state" style="padding:1rem"><i class="ph ph-magnifying-glass"></i>No match found.</div>';return}
 var h="";
@@ -1739,7 +1926,7 @@ el.innerHTML=h;
 },
 
 selectParty:function(id){
-var list=D.g(PM._type+"s"),p=list.find(function(x){return x.id===id});if(!p)return;
+var list=PM._parties[PM._type] || [],p=list.find(function(x){return x.id===id});if(!p)return;
 var prefix=PM._type==="receiver"?"b-r":"b-s";
 document.getElementById(prefix+"n").value=p.name;
 document.getElementById(prefix+"a").value=p.address||"";
@@ -1781,27 +1968,36 @@ fetchInvoices: async function() {
                 });
             }
             
-            // Sync nextInvoiceNo from database to localStorage
+            // Sync nextInvoiceNo from database to localStorage and update server if mismatched
+            var maxInvNo = 0;
             if (IM._all && IM._all.length > 0) {
-                var maxInvNo = 0;
                 IM._all.forEach(function(inv) {
                     var num = parseInt(inv.invoiceNo);
                     if (!isNaN(num) && num > maxInvNo) {
                         maxInvNo = num;
                     }
                 });
-                if (maxInvNo > 0) {
-                    var st = D.go("settings");
-                    st.nextInvoiceNo = maxInvNo + 1;
-                    D.s("settings", st);
-                    console.info('Synced nextInvoiceNo from DB:', st.nextInvoiceNo);
-                    // Update the input field value in the UI immediately if not editing an old invoice
-                    if (typeof BM !== 'undefined' && !BM.editId) {
-                        var invnoEl = document.getElementById("b-invno");
-                        if (invnoEl) {
-                            invnoEl.value = U.pi(st.nextInvoiceNo);
-                        }
-                    }
+            }
+            var expectedNext = maxInvNo > 0 ? maxInvNo + 1 : 1;
+            var st = D.go("settings") || {};
+            if (st.nextInvoiceNo !== expectedNext || (STM._settings && STM._settings.nextInvoiceNo !== expectedNext)) {
+                st.nextInvoiceNo = expectedNext;
+                D.s("settings", st);
+                if (STM._settings) STM._settings.nextInvoiceNo = expectedNext;
+                
+                // Update server settings document asynchronously to prevent future page load resets
+                fetch((API_URL || location.origin + '/api') + '/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nextInvoiceNo: expectedNext })
+                }).catch(function(e){ console.error("Async nextInvoiceNo sync failed:", e); });
+            }
+            
+            // Update the input field value in the UI immediately if not editing an old invoice
+            if (typeof BM !== 'undefined' && !BM.editId) {
+                var invnoEl = document.getElementById("b-invno");
+                if (invnoEl) {
+                    invnoEl.value = U.pi(expectedNext);
                 }
             }
         } else {
@@ -1847,6 +2043,31 @@ if(!confirm("Delete this invoice? This cannot be undone."))return;
 try {
     await fetch((API_URL || location.origin + '/api') + '/invoices/' + id, { method: 'DELETE' });
     IM._all = IM._all.filter(function(inv){return inv.id!==id});
+    
+    // Recalculate nextInvoiceNo based on remaining invoices
+    var maxInvNo = 0;
+    IM._all.forEach(function(inv) {
+        var num = parseInt(inv.invoiceNo);
+        if (!isNaN(num) && num > maxInvNo) {
+            maxInvNo = num;
+        }
+    });
+    var newNextNo = maxInvNo > 0 ? maxInvNo + 1 : 1;
+    try {
+        await fetch((API_URL || location.origin + '/api') + '/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nextInvoiceNo: newNextNo })
+        });
+    } catch(e) {
+        console.error("Failed to update nextInvoiceNo on server during delete:", e);
+    }
+    var st = D.go("settings") || {};
+    st.nextInvoiceNo = newNextNo;
+    D.s("settings", st);
+    var invnoEl = document.getElementById("b-invno");
+    if (invnoEl) invnoEl.value = U.pi(newNextNo);
+
     IM.render();
     DM.render();
     U.toast("Invoice deleted", "info");
@@ -1855,6 +2076,22 @@ try {
     var list=D.g("invoices").filter(function(inv){return inv.id!==id});
     D.s("invoices",list);
     IM._all = list;
+    
+    // Recalculate locally
+    var maxInvNo = 0;
+    list.forEach(function(inv) {
+        var num = parseInt(inv.invoiceNo);
+        if (!isNaN(num) && num > maxInvNo) {
+            maxInvNo = num;
+        }
+    });
+    var newNextNo = maxInvNo > 0 ? maxInvNo + 1 : 1;
+    var st = D.go("settings") || {};
+    st.nextInvoiceNo = newNextNo;
+    D.s("settings", st);
+    var invnoEl = document.getElementById("b-invno");
+    if (invnoEl) invnoEl.value = U.pi(newNextNo);
+
     IM.render();
     DM.render();
     U.toast("Invoice deleted locally", "info");
@@ -2006,19 +2243,24 @@ U.toast("Report generated: "+invs.length+" invoices","success");
 /* ===== APP START ===== */
 var App={
 load: async function(){
-    // Initialize local UI parts that don't depend on backend first
-    BM.init();
-    PDM.render();
-    PM.render();
-
     var btnGen = document.getElementById("btn-generate");
     if (btnGen) {
         btnGen.disabled = true;
-        btnGen.innerHTML = '<i class="ph ph-spinner" style="animation:spin .7s linear infinite"></i> Loading invoices...';
+        btnGen.innerHTML = '<i class="ph ph-spinner" style="animation:spin .7s linear infinite"></i> Loading app data...';
     }
 
-    // Then resolve API and fetch invoices (may be slow) and render dashboard
+    // Resolve API URL first so subsequent requests use correct address
     await resolveApiUrl();
+    
+    // Fetch and load settings first so invoice numbering, timeout etc. are ready
+    await STM.fetchSettings();
+    
+    // Initialize billing manager (reads settings to configure next invoice no)
+    BM.init();
+    
+    // Render and load products, parties (receivers & consignees), and invoices from backend
+    await PDM.render();
+    await PM.render();
     await IM.fetchInvoices();
     DM.render();
 
