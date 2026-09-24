@@ -574,15 +574,16 @@ var GU="left-god.jpg";
 var HU="right-god.jpg";
 var CR=2.5,SR=2.5,IR=5;
 var CLOUD_GAS_URL = "https://script.google.com/macros/s/AKfycbyRmF00PY9ipLoFifC2ZOGWI8zKmouOEho8IvntPphdS9vtLaAXzfsi5TWkRlGmj3SC/exec";
-var API_URL = (location.origin && location.origin.startsWith("http") && !location.origin.includes("script.google.com")) ? (location.origin + "/api") : "http://localhost:3000/api";
-var API_MODE = localStorage.getItem("akb_db_mode") || "auto"; // "auto", "local", "cloud"
+var isLocalHost = location.hostname === "localhost" || location.hostname === "127.0.0.1" || location.hostname === "" || location.protocol === "file:";
+var API_URL = isLocalHost ? ((location.origin && location.origin.startsWith("http")) ? (location.origin + "/api") : "http://localhost:3000/api") : CLOUD_GAS_URL;
+var API_MODE = localStorage.getItem("akb_db_mode") || (isLocalHost ? "auto" : "cloud");
 var API_LATENCY_MS = 0;
 
 async function resolveApiUrl(forceRefresh) {
-    var storedMode = localStorage.getItem("akb_db_mode") || "auto";
+    var storedMode = localStorage.getItem("akb_db_mode") || (isLocalHost ? "auto" : "cloud");
     API_MODE = storedMode;
 
-    if (API_MODE === "cloud") {
+    if (API_MODE === "cloud" || (!isLocalHost && API_MODE !== "local")) {
         API_URL = CLOUD_GAS_URL;
         return API_URL;
     }
@@ -594,8 +595,8 @@ async function resolveApiUrl(forceRefresh) {
         return API_URL;
     }
 
-    // If already initialized with a local endpoint, commit to session and return instantly
-    if (!forceRefresh && API_URL && (API_URL.includes("localhost") || API_URL.startsWith(location.origin))) {
+    // If already initialized with a local endpoint on localhost, commit to session and return instantly
+    if (!forceRefresh && isLocalHost && API_URL && (API_URL.includes("localhost") || API_URL.startsWith(location.origin))) {
         sessionStorage.setItem("akb_cached_api_url", API_URL);
         return API_URL;
     }
