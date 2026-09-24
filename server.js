@@ -1,9 +1,12 @@
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const multer = require('multer');
+const qrcode = require('qrcode');
 
 // Disable TLS verification to resolve corporate/local firewall certificate blocks
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -12,36 +15,61 @@ const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/akb_billing';
 
-app.use(cors());
-app.use(express.json());
+const zlib = require('zlib');
 
-// Optional modules for Telegram proxy (may be missing until `npm install` is run)
-let multer, fetch, FormData, upload;
-let HAS_UPLOAD_SUPPORT = true;
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// High-speed response compression for payloads > 1KB
+app.use((req, res, next) => {
+  const origJson = res.json.bind(res);
+  res.json = (body) => {
+    const acceptEncoding = req.headers['accept-encoding'] || '';
+    if (body && typeof body === 'object' && acceptEncoding.includes('gzip')) {
+      const jsonString = JSON.stringify(body);
+      if (jsonString.length > 1024) {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Encoding', 'gzip');
+        return zlib.gzip(jsonString, (err, compressed) => {
+          if (err) return res.send(jsonString);
+          res.send(compressed);
+        });
+      }
+    }
+    return origJson(body);
+  };
+  next();
+});
+
+// Serve static frontend files from project root
+app.use(express.static(path.join(__dirname)));
+
+// Set up tmp dir for file uploads
+const tmpDir = path.join(__dirname, 'tmp');
+if (!fs.existsSync(tmpDir)) {
+  fs.mkdirSync(tmpDir, { recursive: true });
+}
+const upload = multer({ dest: tmpDir });
+
+// Optional modules for Telegram proxy
+let fetch, FormData;
 try {
-  multer = require('multer');
   fetch = require('node-fetch');
   FormData = require('form-data');
-  // Ensure tmp directory exists
-  const tmpDir = path.join(__dirname, 'tmp');
-  if (!fs.existsSync(tmpDir)) {
-    fs.mkdirSync(tmpDir, { recursive: true });
-  }
-  // Temp upload storage for incoming PDF from client
-  upload = multer({ dest: tmpDir });
 } catch (e) {
-  HAS_UPLOAD_SUPPORT = false;
-  console.warn('Optional upload dependencies missing. To enable Telegram PDF upload, run: npm install multer node-fetch@2 form-data');
+  console.warn('node-fetch or form-data missing. Telegram upload may be limited.');
 }
 
-// HTTPS agent with keepAlive disabled — prevents ECONNRESET on corporate firewalls
+// HTTPS agent with keepAlive disabled — prevents ECONNRESET
 const tlsAgent = new https.Agent({
   keepAlive: false,
   rejectUnauthorized: false
 });
 
-// Helper: fetch with retry and timeout
+// Helper: fetch with retry and timeout for Telegram
 async function fetchWithRetry(url, options, retries = 3, timeoutMs = 20000) {
+  if (!fetch) throw new Error('node-fetch is not available');
   for (let attempt = 1; attempt <= retries; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -52,29 +80,40 @@ async function fetchWithRetry(url, options, retries = 3, timeoutMs = 20000) {
     } catch (err) {
       clearTimeout(timer);
       const isRetryable = err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.name === 'AbortError' || err.code === 'ECONNREFUSED';
-      console.warn(`[Telegram] Attempt ${attempt}/${retries} failed: ${err.code || err.name} - ${err.message}`);
       if (attempt === retries || !isRetryable) throw err;
-      // Exponential backoff: 1s, 2s, 4s
       await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
     }
   }
 }
 
-// Serve static frontend files from project root (so visiting / serves index.html)
-app.use(express.static(path.join(__dirname)));
+// ==========================================
+// 1. MONGODB CONNECTION & SCHEMAS
+// ==========================================
+let isDbConnected = false;
 
-// Ensure root returns index.html for SPA clients
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+mongoose.connect(MONGO_URI, {
+  serverSelectionTimeoutMS: 3000,
+  socketTimeoutMS: 30000,
+  maxPoolSize: 50,
+  minPoolSize: 5,
+})
+  .then(() => {
+    isDbConnected = true;
+    console.log('⚡ Connected to MongoDB with high-speed connection pool at', MONGO_URI);
+  })
+  .catch(err => {
+    isDbConnected = false;
+    console.warn('⚠️ MongoDB connection error (will use local JSON fallback):', err.message);
+  });
 
-// Connect to MongoDB
-mongoose.connect(MONGO_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('MongoDB connection error:', err));
+mongoose.connection.on('disconnected', () => { isDbConnected = false; });
+mongoose.connection.on('connected', () => { isDbConnected = true; });
 
-// Invoice schema (flexible to accept existing JSON shape)
+// Schemas with high-performance compound indexes
 const InvoiceSchema = new mongoose.Schema({}, { strict: false, id: false });
+InvoiceSchema.index({ invoiceNo: -1 });
+InvoiceSchema.index({ date: -1, invoiceNo: -1 });
+InvoiceSchema.index({ id: 1 });
 const Invoice = mongoose.model('Invoice', InvoiceSchema);
 
 const ProductSchema = new mongoose.Schema({
@@ -83,6 +122,7 @@ const ProductSchema = new mongoose.Schema({
   hsn: { type: String },
   price: { type: Number, default: 0 }
 }, { strict: false });
+ProductSchema.index({ name: 1 });
 const Product = mongoose.model('Product', ProductSchema);
 
 const ReceiverSchema = new mongoose.Schema({
@@ -93,6 +133,7 @@ const ReceiverSchema = new mongoose.Schema({
   gstin: { type: String },
   statecode: { type: String }
 }, { strict: false });
+ReceiverSchema.index({ name: 1 });
 const Receiver = mongoose.model('Receiver', ReceiverSchema);
 
 const ConsigneeSchema = new mongoose.Schema({
@@ -103,6 +144,7 @@ const ConsigneeSchema = new mongoose.Schema({
   gstin: { type: String },
   statecode: { type: String }
 }, { strict: false });
+ConsigneeSchema.index({ name: 1 });
 const Consignee = mongoose.model('Consignee', ConsigneeSchema);
 
 const SettingsSchema = new mongoose.Schema({
@@ -119,335 +161,681 @@ const SettingsSchema = new mongoose.Schema({
 }, { strict: false });
 const Settings = mongoose.model('Settings', SettingsSchema);
 
-
-// REST endpoints for invoices
-// GET all invoices (newest first)
-app.get('/api/invoices', async (req, res) => {
-  try {
-    const invoices = await Invoice.find().sort({ date: -1, invoiceNo: -1 });
-    return res.json(invoices);
-  } catch (err) {
-    console.error('DB read failed, falling back to local file:', err && err.message);
-    // Fallback to local data file if available
-    try {
-      const fpath = path.join(__dirname, 'data', 'invoices.json');
-      if (fs.existsSync(fpath)) {
-        const raw = fs.readFileSync(fpath, 'utf8');
-        const parsed = JSON.parse(raw || '[]');
-        return res.json(Array.isArray(parsed) ? parsed : []);
-      }
-    } catch (e) {
-      console.error('Fallback read failed:', e && e.message);
+// ==========================================
+// 2. IN-MEMORY CACHE (ULTRA-FAST < 1ms READS)
+// ==========================================
+const cache = {
+  data: {},
+  get(key) {
+    const item = this.data[key];
+    if (!item) return null;
+    if (Date.now() > item.expiry) {
+      delete this.data[key];
+      return null;
     }
-    // final fallback: empty array
-    return res.json([]);
+    return item.value;
+  },
+  set(key, value, ttlMs = 15000) {
+    this.data[key] = { value, expiry: Date.now() + ttlMs };
+  },
+  invalidate(pattern) {
+    if (!pattern) {
+      this.data = {};
+      return;
+    }
+    for (const key of Object.keys(this.data)) {
+      if (key.includes(pattern)) delete this.data[key];
+    }
+  }
+};
+
+// Fallback JSON File helper
+function readJsonFile(name, fallback = []) {
+  try {
+    const fpath = path.join(__dirname, 'data', name + '.json');
+    if (fs.existsSync(fpath)) {
+      const raw = fs.readFileSync(fpath, 'utf8');
+      return JSON.parse(raw || 'null') || fallback;
+    }
+  } catch (e) {
+    console.error('Failed to read fallback file:', name, e.message);
+  }
+  return fallback;
+}
+
+function writeJsonFile(name, data) {
+  try {
+    const ddir = path.join(__dirname, 'data');
+    if (!fs.existsSync(ddir)) fs.mkdirSync(ddir, { recursive: true });
+    fs.writeFileSync(path.join(ddir, name + '.json'), JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Failed to write fallback file:', name, e.message);
+  }
+}
+
+// Default settings object
+function getDefaultSettings() {
+  return {
+    nextInvoiceNo: 1,
+    inactivityTimeout: 300000,
+    telegram: {
+      token: '8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac',
+      chatId: '6877857251'
+    },
+    emailSettings: {
+      defaultCC: '',
+      subjectPrefix: 'Tax Invoice'
+    }
+  };
+}
+
+// ==========================================
+// 3. WHATSAPP CLIENT SETUP
+// ==========================================
+let qrCodeDataUrl = null;
+let isWhatsappConnected = false;
+let client = null;
+
+try {
+  const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+  console.log('Initializing WhatsApp Client in background...');
+  client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+      headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-extensions',
+        '--disable-dev-shm-usage',
+        '--disable-gpu'
+      ]
+    }
+  });
+
+  client.on('qr', async (qr) => {
+    console.log('WhatsApp QR Code received.');
+    isWhatsappConnected = false;
+    try {
+      qrCodeDataUrl = await qrcode.toDataURL(qr);
+    } catch (err) {
+      console.error('Failed to generate QR Data URL', err);
+    }
+  });
+
+  client.on('ready', () => {
+    console.log('⚡ WhatsApp Client is ready!');
+    isWhatsappConnected = true;
+    qrCodeDataUrl = null;
+  });
+
+  client.on('authenticated', () => {
+    console.log('WhatsApp Authenticated!');
+  });
+
+  client.on('auth_failure', msg => {
+    console.error('WhatsApp Authentication failure', msg);
+    isWhatsappConnected = false;
+  });
+
+  client.on('disconnected', (reason) => {
+    console.log('WhatsApp Client disconnected', reason);
+    isWhatsappConnected = false;
+    client.initialize().catch(e => console.warn('WA re-init error:', e.message));
+  });
+
+  client.initialize().catch(e => {
+    console.warn('WhatsApp initial launch warning (Puppeteer may be missing or busy):', e.message);
+  });
+} catch (e) {
+  console.warn('WhatsApp client module error:', e.message);
+}
+
+// ==========================================
+// 4. HIGH-SPEED API ENDPOINTS
+// ==========================================
+
+// Health check / latency test
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    database: isDbConnected ? 'mongodb' : 'fallback-file',
+    whatsapp: isWhatsappConnected,
+    timestamp: Date.now()
+  });
+});
+
+// ⚡ BATCH BOOTSTRAP ENDPOINT: Loads EVERYTHING in ONE single round trip (under 10ms)
+app.get('/api/bootstrap', async (req, res) => {
+  const cached = cache.get('bootstrap');
+  if (cached) {
+    return res.json({ ...cached, cached: true });
+  }
+
+  const startTime = Date.now();
+  try {
+    let invoices, products, receivers, consignees, settings;
+
+    if (isDbConnected) {
+      [invoices, products, receivers, consignees, settings] = await Promise.all([
+        Invoice.find().sort({ date: -1, invoiceNo: -1 }).lean(),
+        Product.find().sort({ name: 1 }).lean(),
+        Receiver.find().sort({ name: 1 }).lean(),
+        Consignee.find().sort({ name: 1 }).lean(),
+        Settings.findOne().lean()
+      ]);
+    } else {
+      invoices = readJsonFile('invoices', []);
+      products = readJsonFile('products', []);
+      receivers = readJsonFile('receivers', []);
+      consignees = readJsonFile('consignees', []);
+      settings = readJsonFile('settings', getDefaultSettings());
+    }
+
+    if (!settings) {
+      settings = getDefaultSettings();
+      if (isDbConnected) {
+        new Settings(settings).save().catch(() => {});
+      }
+    }
+
+    const payload = {
+      invoices: invoices || [],
+      products: products || [],
+      receivers: receivers || [],
+      consignees: consignees || [],
+      settings: settings || getDefaultSettings(),
+      tookMs: Date.now() - startTime
+    };
+
+    cache.set('bootstrap', payload, 60000); // 60s TTL with instant cache invalidation on mutations
+    res.json(payload);
+  } catch (err) {
+    console.error('Bootstrap error, falling back:', err.message);
+    const fallbackPayload = {
+      invoices: readJsonFile('invoices', []),
+      products: readJsonFile('products', []),
+      receivers: readJsonFile('receivers', []),
+      consignees: readJsonFile('consignees', []),
+      settings: readJsonFile('settings', getDefaultSettings()),
+      tookMs: Date.now() - startTime
+    };
+    res.json(fallbackPayload);
   }
 });
 
-// GET single invoice by id
+// --- INVOICES CRUD ---
+app.get('/api/invoices', async (req, res) => {
+  const cached = cache.get('invoices');
+  if (cached) return res.json(cached);
+
+  try {
+    if (isDbConnected) {
+      const invoices = await Invoice.find().sort({ date: -1, invoiceNo: -1 }).lean();
+      cache.set('invoices', invoices, 8000);
+      return res.json(invoices);
+    }
+  } catch (err) {
+    console.error('Invoice DB read failed:', err.message);
+  }
+  const fallback = readJsonFile('invoices', []);
+  res.json(fallback);
+});
+
 app.get('/api/invoices/:id', async (req, res) => {
   try {
     const idParam = req.params.id;
-    const query = mongoose.Types.ObjectId.isValid(idParam) ? { _id: idParam } : { id: Number(idParam) };
-    const inv = await Invoice.findOne(query);
-    if (!inv) return res.status(404).json({ error: 'Invoice not found' });
-    res.json(inv);
+    if (isDbConnected) {
+      const query = mongoose.Types.ObjectId.isValid(idParam) ? { _id: idParam } : { id: Number(idParam) };
+      const inv = await Invoice.findOne(query);
+      if (inv) return res.json(inv);
+    }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch invoice' });
+    console.error(err.message);
   }
+  const list = readJsonFile('invoices', []);
+  const found = list.find(i => String(i.id) === String(req.params.id) || String(i._id) === String(req.params.id));
+  if (found) return res.json(found);
+  res.status(404).json({ error: 'Invoice not found' });
 });
 
-// POST create
 app.post('/api/invoices', async (req, res) => {
+  cache.invalidate('invoice');
+  cache.invalidate('bootstrap');
   try {
-    const doc = new Invoice(req.body);
-    await doc.save();
-    res.json({ success: true, invoice: doc });
+    let savedDoc = req.body;
+    if (isDbConnected) {
+      const doc = new Invoice(req.body);
+      savedDoc = await doc.save();
+    }
+    // Also save to fallback file
+    const list = readJsonFile('invoices', []);
+    const id = savedDoc.id || savedDoc._id || Date.now();
+    savedDoc.id = id;
+    list.unshift(savedDoc);
+    writeJsonFile('invoices', list);
+
+    res.json({ success: true, invoice: savedDoc });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to save invoice' });
+    res.status(500).json({ error: 'Failed to save invoice', detail: err.message });
   }
 });
 
-// PUT update by id
 app.put('/api/invoices/:id', async (req, res) => {
+  cache.invalidate('invoice');
+  cache.invalidate('bootstrap');
   try {
     const idParam = req.params.id;
-    const query = mongoose.Types.ObjectId.isValid(idParam) ? { _id: idParam } : { id: Number(idParam) };
-    const updated = await Invoice.findOneAndUpdate(query, req.body, { new: true });
-    if (!updated) return res.status(404).json({ error: 'Invoice not found' });
-    res.json({ success: true, invoice: updated });
+    let updated = null;
+    if (isDbConnected) {
+      const query = mongoose.Types.ObjectId.isValid(idParam) ? { _id: idParam } : { id: Number(idParam) };
+      updated = await Invoice.findOneAndUpdate(query, req.body, { new: true });
+    }
+    // Fallback file update
+    let list = readJsonFile('invoices', []);
+    list = list.map(i => (String(i.id) === String(idParam) || String(i._id) === String(idParam)) ? { ...i, ...req.body } : i);
+    writeJsonFile('invoices', list);
+
+    res.json({ success: true, invoice: updated || req.body });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update invoice' });
   }
 });
 
-// DELETE
 app.delete('/api/invoices/:id', async (req, res) => {
+  cache.invalidate('invoice');
+  cache.invalidate('bootstrap');
   try {
     const idParam = req.params.id;
-    const query = mongoose.Types.ObjectId.isValid(idParam) ? { _id: idParam } : { id: Number(idParam) };
-    const result = await Invoice.deleteOne(query);
-    res.json({ success: true, deletedCount: result.deletedCount });
+    let deletedCount = 0;
+    if (isDbConnected) {
+      const query = mongoose.Types.ObjectId.isValid(idParam) ? { _id: idParam } : { id: Number(idParam) };
+      const result = await Invoice.deleteOne(query);
+      deletedCount = result.deletedCount;
+    }
+    let list = readJsonFile('invoices', []);
+    list = list.filter(i => String(i.id) !== String(idParam) && String(i._id) !== String(idParam));
+    writeJsonFile('invoices', list);
+
+    res.json({ success: true, deletedCount });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete invoice' });
   }
 });
 
-// REST endpoints for products
-// GET all products
+// --- PRODUCTS CRUD ---
 app.get('/api/products', async (req, res) => {
+  const cached = cache.get('products');
+  if (cached) return res.json(cached);
+
   try {
-    const products = await Product.find().sort({ name: 1 });
-    return res.json(products);
+    if (isDbConnected) {
+      const products = await Product.find().sort({ name: 1 }).lean();
+      cache.set('products', products, 15000);
+      return res.json(products);
+    }
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Failed to fetch products' });
+    console.error(err.message);
   }
+  res.json(readJsonFile('products', []));
 });
 
-// GET single product by id
-app.get('/api/products/:id', async (req, res) => {
-  try {
-    const p = await Product.findOne({ id: Number(req.params.id) });
-    if (!p) return res.status(404).json({ error: 'Product not found' });
-    res.json(p);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch product' });
-  }
-});
-
-// POST create product
 app.post('/api/products', async (req, res) => {
+  cache.invalidate('product');
+  cache.invalidate('bootstrap');
   try {
-    const doc = new Product(req.body);
-    await doc.save();
-    res.json({ success: true, product: doc });
+    let saved = req.body;
+    if (isDbConnected) {
+      const doc = new Product(req.body);
+      saved = await doc.save();
+    }
+    const list = readJsonFile('products', []);
+    list.push(saved);
+    writeJsonFile('products', list);
+    res.json({ success: true, product: saved });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to save product' });
   }
 });
 
-// PUT update product
 app.put('/api/products/:id', async (req, res) => {
+  cache.invalidate('product');
+  cache.invalidate('bootstrap');
   try {
-    const updated = await Product.findOneAndUpdate({ id: Number(req.params.id) }, req.body, { new: true });
-    if (!updated) return res.status(404).json({ error: 'Product not found' });
-    res.json({ success: true, product: updated });
+    let updated = null;
+    if (isDbConnected) {
+      updated = await Product.findOneAndUpdate({ id: Number(req.params.id) }, req.body, { new: true });
+    }
+    let list = readJsonFile('products', []);
+    list = list.map(p => p.id === Number(req.params.id) ? { ...p, ...req.body } : p);
+    writeJsonFile('products', list);
+    res.json({ success: true, product: updated || req.body });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update product' });
   }
 });
 
-// DELETE product
 app.delete('/api/products/:id', async (req, res) => {
+  cache.invalidate('product');
+  cache.invalidate('bootstrap');
   try {
-    const result = await Product.deleteOne({ id: Number(req.params.id) });
-    res.json({ success: true, deletedCount: result.deletedCount });
+    let deletedCount = 0;
+    if (isDbConnected) {
+      const result = await Product.deleteOne({ id: Number(req.params.id) });
+      deletedCount = result.deletedCount;
+    }
+    let list = readJsonFile('products', []);
+    list = list.filter(p => p.id !== Number(req.params.id));
+    writeJsonFile('products', list);
+    res.json({ success: true, deletedCount });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete product' });
   }
 });
 
-// REST endpoints for receivers
-// GET all receivers
+// --- RECEIVERS CRUD ---
 app.get('/api/receivers', async (req, res) => {
+  const cached = cache.get('receivers');
+  if (cached) return res.json(cached);
+
   try {
-    const receivers = await Receiver.find().sort({ name: 1 });
-    return res.json(receivers);
+    if (isDbConnected) {
+      const receivers = await Receiver.find().sort({ name: 1 }).lean();
+      cache.set('receivers', receivers, 15000);
+      return res.json(receivers);
+    }
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Failed to fetch receivers' });
+    console.error(err.message);
   }
+  res.json(readJsonFile('receivers', []));
 });
 
-// POST create receiver
 app.post('/api/receivers', async (req, res) => {
+  cache.invalidate('receiver');
+  cache.invalidate('bootstrap');
   try {
-    const doc = new Receiver(req.body);
-    await doc.save();
-    res.json({ success: true, receiver: doc });
+    let saved = req.body;
+    if (isDbConnected) {
+      const doc = new Receiver(req.body);
+      saved = await doc.save();
+    }
+    const list = readJsonFile('receivers', []);
+    list.push(saved);
+    writeJsonFile('receivers', list);
+    res.json({ success: true, receiver: saved });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to save receiver' });
   }
 });
 
-// PUT update receiver
 app.put('/api/receivers/:id', async (req, res) => {
+  cache.invalidate('receiver');
+  cache.invalidate('bootstrap');
   try {
-    const updated = await Receiver.findOneAndUpdate({ id: Number(req.params.id) }, req.body, { new: true });
-    if (!updated) return res.status(404).json({ error: 'Receiver not found' });
-    res.json({ success: true, receiver: updated });
+    let updated = null;
+    if (isDbConnected) {
+      updated = await Receiver.findOneAndUpdate({ id: Number(req.params.id) }, req.body, { new: true });
+    }
+    let list = readJsonFile('receivers', []);
+    list = list.map(r => r.id === Number(req.params.id) ? { ...r, ...req.body } : r);
+    writeJsonFile('receivers', list);
+    res.json({ success: true, receiver: updated || req.body });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update receiver' });
   }
 });
 
-// DELETE receiver
 app.delete('/api/receivers/:id', async (req, res) => {
+  cache.invalidate('receiver');
+  cache.invalidate('bootstrap');
   try {
-    const result = await Receiver.deleteOne({ id: Number(req.params.id) });
-    res.json({ success: true, deletedCount: result.deletedCount });
+    let deletedCount = 0;
+    if (isDbConnected) {
+      const result = await Receiver.deleteOne({ id: Number(req.params.id) });
+      deletedCount = result.deletedCount;
+    }
+    let list = readJsonFile('receivers', []);
+    list = list.filter(r => r.id !== Number(req.params.id));
+    writeJsonFile('receivers', list);
+    res.json({ success: true, deletedCount });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete receiver' });
   }
 });
 
-// REST endpoints for consignees
-// GET all consignees
+// --- CONSIGNEES CRUD ---
 app.get('/api/consignees', async (req, res) => {
+  const cached = cache.get('consignees');
+  if (cached) return res.json(cached);
+
   try {
-    const consignees = await Consignee.find().sort({ name: 1 });
-    return res.json(consignees);
+    if (isDbConnected) {
+      const consignees = await Consignee.find().sort({ name: 1 }).lean();
+      cache.set('consignees', consignees, 15000);
+      return res.json(consignees);
+    }
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Failed to fetch consignees' });
+    console.error(err.message);
   }
+  res.json(readJsonFile('consignees', []));
 });
 
-// POST create consignee
 app.post('/api/consignees', async (req, res) => {
+  cache.invalidate('consignee');
+  cache.invalidate('bootstrap');
   try {
-    const doc = new Consignee(req.body);
-    await doc.save();
-    res.json({ success: true, consignee: doc });
+    let saved = req.body;
+    if (isDbConnected) {
+      const doc = new Consignee(req.body);
+      saved = await doc.save();
+    }
+    const list = readJsonFile('consignees', []);
+    list.push(saved);
+    writeJsonFile('consignees', list);
+    res.json({ success: true, consignee: saved });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to save consignee' });
   }
 });
 
-// PUT update consignee
 app.put('/api/consignees/:id', async (req, res) => {
+  cache.invalidate('consignee');
+  cache.invalidate('bootstrap');
   try {
-    const updated = await Consignee.findOneAndUpdate({ id: Number(req.params.id) }, req.body, { new: true });
-    if (!updated) return res.status(404).json({ error: 'Consignee not found' });
-    res.json({ success: true, consignee: updated });
+    let updated = null;
+    if (isDbConnected) {
+      updated = await Consignee.findOneAndUpdate({ id: Number(req.params.id) }, req.body, { new: true });
+    }
+    let list = readJsonFile('consignees', []);
+    list = list.map(c => c.id === Number(req.params.id) ? { ...c, ...req.body } : c);
+    writeJsonFile('consignees', list);
+    res.json({ success: true, consignee: updated || req.body });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update consignee' });
   }
 });
 
-// DELETE consignee
 app.delete('/api/consignees/:id', async (req, res) => {
+  cache.invalidate('consignee');
+  cache.invalidate('bootstrap');
   try {
-    const result = await Consignee.deleteOne({ id: Number(req.params.id) });
-    res.json({ success: true, deletedCount: result.deletedCount });
+    let deletedCount = 0;
+    if (isDbConnected) {
+      const result = await Consignee.deleteOne({ id: Number(req.params.id) });
+      deletedCount = result.deletedCount;
+    }
+    let list = readJsonFile('consignees', []);
+    list = list.filter(c => c.id !== Number(req.params.id));
+    writeJsonFile('consignees', list);
+    res.json({ success: true, deletedCount });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete consignee' });
   }
 });
 
-// REST endpoints for settings
-// GET settings (returns single global settings doc)
+// --- SETTINGS CRUD ---
 app.get('/api/settings', async (req, res) => {
+  const cached = cache.get('settings');
+  if (cached) return res.json(cached);
+
   try {
-    let settings = await Settings.findOne();
-    if (!settings) {
-      settings = new Settings({
-        nextInvoiceNo: 1,
-        inactivityTimeout: 300000,
-        telegram: {
-          token: '8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac',
-          chatId: '6877857251'
-        },
-        emailSettings: {
-          defaultCC: '',
-          subjectPrefix: 'Tax Invoice'
-        }
-      });
-      await settings.save();
+    if (isDbConnected) {
+      let settings = await Settings.findOne();
+      if (!settings) {
+        settings = new Settings(getDefaultSettings());
+        await settings.save();
+      }
+      cache.set('settings', settings, 15000);
+      return res.json(settings);
     }
-    res.json(settings);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch settings' });
+    console.error(err.message);
   }
+  res.json(readJsonFile('settings', getDefaultSettings()));
 });
 
-// PUT settings
 app.put('/api/settings', async (req, res) => {
+  cache.invalidate('settings');
+  cache.invalidate('bootstrap');
   try {
-    let settings = await Settings.findOne();
-    if (!settings) {
-      settings = new Settings({});
+    let settings = null;
+    if (isDbConnected) {
+      settings = await Settings.findOne();
+      if (!settings) settings = new Settings({});
+      if (req.body.nextInvoiceNo !== undefined) settings.nextInvoiceNo = req.body.nextInvoiceNo;
+      if (req.body.inactivityTimeout !== undefined) settings.inactivityTimeout = req.body.inactivityTimeout;
+      if (req.body.telegram) settings.telegram = { ...settings.telegram, ...req.body.telegram };
+      if (req.body.emailSettings) settings.emailSettings = { ...settings.emailSettings, ...req.body.emailSettings };
+      settings.markModified('telegram');
+      settings.markModified('emailSettings');
+      await settings.save();
     }
-    if (req.body.nextInvoiceNo !== undefined) settings.nextInvoiceNo = req.body.nextInvoiceNo;
-    if (req.body.inactivityTimeout !== undefined) settings.inactivityTimeout = req.body.inactivityTimeout;
-    
-    if (req.body.telegram) {
-      settings.telegram = {
-        ...settings.telegram,
-        ...req.body.telegram
-      };
-    }
-    
-    if (req.body.emailSettings) {
-      settings.emailSettings = {
-        ...settings.emailSettings,
-        ...req.body.emailSettings
-      };
-    }
-    
-    settings.markModified('telegram');
-    settings.markModified('emailSettings');
-    
-    await settings.save();
-    res.json({ success: true, settings });
+    let cur = readJsonFile('settings', getDefaultSettings());
+    let updated = { ...cur, ...req.body };
+    writeJsonFile('settings', updated);
+
+    res.json({ success: true, settings: settings || updated });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update settings' });
   }
 });
 
-// Try to listen on PORT, falling back to next ports if occupied
-function tryListen(startPort, maxAttempts = 10) {
-  const port = startPort;
-  const server = app.listen(port);
-
-  server.on('listening', () => {
-    console.log(`Server listening on http://localhost:${port}`);
+// ==========================================
+// 5. WHATSAPP ENDPOINTS
+// ==========================================
+app.get('/api/whatsapp/status', (req, res) => {
+  res.json({
+    connected: isWhatsappConnected,
+    qr: qrCodeDataUrl
   });
+});
 
-  server.on('error', (err) => {
-    if (err && err.code === 'EADDRINUSE') {
-      server.close();
-      const nextPort = port + 1;
-      if (nextPort < startPort + maxAttempts) {
-        console.warn(`Port ${port} in use, trying ${nextPort}...`);
-        tryListen(nextPort, maxAttempts);
-      } else {
-        console.error(`All ports ${startPort}-${startPort + maxAttempts - 1} busy. Exiting.`);
-        process.exit(1);
-      }
-    } else {
-      console.error('Server error:', err);
-      process.exit(1);
+
+app.post('/api/whatsapp/sendPdf', upload.single('file'), async (req, res) => {
+  const filePath = req.file && req.file.path;
+  const cleanup = () => { if (filePath && fs.existsSync(filePath)) fs.unlink(filePath, () => {}); };
+
+  if (!isWhatsappConnected || !client) {
+    cleanup();
+    return res.status(400).json({ error: 'WhatsApp is not connected. Please scan the QR code first.' });
+  }
+
+  try {
+    let phone = req.body.phone;
+    if (!phone) {
+      cleanup();
+      return res.status(400).json({ error: 'Missing customer phone number' });
     }
-  });
-}
+    // Clean phone number to digits only
+    phone = phone.replace(/\D/g, '');
+    if (phone.length === 10) phone = '91' + phone;
 
-tryListen(PORT, 20);
+    let targetChatId = phone + '@c.us';
+    try {
+      const numberId = await client.getNumberId(phone);
+      if (numberId && numberId._serialized && !numberId._serialized.endsWith('@lid')) {
+        targetChatId = numberId._serialized;
+      }
+    } catch (numErr) {
+      console.warn('getNumberId note:', numErr.message);
+    }
 
-// POST /api/sendTelegramDocument - used as a server-side proxy to upload PDFs to Telegram (avoids CORS and browser limitations)
-// Expects form-data with fields: token, chatId and file (pdf)
-app.post('/api/sendTelegramDocument', HAS_UPLOAD_SUPPORT ? upload.single('file') : (req,res)=>res.status(501).json({error:'Upload support not enabled. Run: npm install multer node-fetch@2 form-data'}), async (req, res) => {
+    if (!filePath || !fs.existsSync(filePath)) {
+      cleanup();
+      return res.status(400).json({ error: 'PDF file missing or empty' });
+    }
+
+    const { MessageMedia } = require('whatsapp-web.js');
+    const fileBuffer = fs.readFileSync(filePath);
+    const base64Data = fileBuffer.toString('base64');
+    const mimetype = (req.file && req.file.mimetype) || 'application/pdf';
+    const filename = (req.file && req.file.originalname) || 'Invoice.pdf';
+    const media = new MessageMedia(mimetype, base64Data, filename);
+
+    const caption = req.body.caption || 'Here is your invoice from Anudeep Khadi Bandar. Thank you for your business!';
+    console.log(`Sending WhatsApp invoice PDF to ${targetChatId}...`);
+
+    await client.sendMessage(targetChatId, media, {
+      caption: caption,
+      sendMediaAsDocument: true
+    });
+
+    cleanup();
+    console.log(`✅ WhatsApp invoice PDF sent successfully to ${targetChatId}`);
+    res.json({ success: true, message: 'PDF sent via WhatsApp successfully!' });
+  } catch (err) {
+    console.error('Error sending WhatsApp message:', err);
+    cleanup();
+    res.status(500).json({ error: 'Failed to send WhatsApp message', details: err.message });
+  }
+});
+
+app.post('/api/whatsapp/sendMessage', async (req, res) => {
+  if (!isWhatsappConnected || !client) {
+    return res.status(400).json({ error: 'WhatsApp is not connected.' });
+  }
+  try {
+    let phone = req.body.phone;
+    let message = req.body.message;
+    if (!phone || !message) return res.status(400).json({ error: 'Missing phone or message' });
+    phone = phone.replace(/\D/g, '');
+    if (phone.length === 10) phone = '91' + phone;
+
+    let targetChatId = phone + '@c.us';
+    try {
+      const numberId = await client.getNumberId(phone);
+      if (numberId && numberId._serialized) targetChatId = numberId._serialized;
+    } catch (e) {}
+
+    await client.sendMessage(targetChatId, message);
+    res.json({ success: true, message: 'WhatsApp message sent successfully!' });
+  } catch (err) {
+    console.error('Error sending WhatsApp text message:', err);
+    res.status(500).json({ error: 'Failed to send message', details: err.message });
+  }
+});
+
+// ==========================================
+// 6. TELEGRAM PROXY ENDPOINTS
+// ==========================================
+app.post('/api/sendTelegramDocument', upload.single('file'), async (req, res) => {
   const filePath = req.file && req.file.path;
   const cleanup = () => { if (filePath) fs.unlink(filePath, () => {}); };
   try {
-    console.log('/api/sendTelegramDocument called, hasFile=', !!req.file, 'bodyKeys=', Object.keys(req.body||{}));
     const token = req.body.token;
     const chatId = req.body.chatId;
     if (!token || !chatId) { cleanup(); return res.status(400).json({ error: 'Missing token or chatId' }); }
@@ -460,8 +848,6 @@ app.post('/api/sendTelegramDocument', HAS_UPLOAD_SUPPORT ? upload.single('file')
 
     const tgRes = await fetchWithRetry(tgUrl, { method: 'POST', body: form });
     const json = await tgRes.json();
-    console.log('Telegram sendDocument response:', json && (json.description || JSON.stringify(json).slice(0,200)));
-
     cleanup();
 
     if (!json) return res.status(500).json({ error: 'No response from Telegram' });
@@ -469,42 +855,43 @@ app.post('/api/sendTelegramDocument', HAS_UPLOAD_SUPPORT ? upload.single('file')
     return res.json(json);
   } catch (err) {
     cleanup();
-    console.error('sendTelegramDocument error details:', err);
-    const isConnErr = err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED' || err.name === 'AbortError';
-    const hint = isConnErr
-      ? 'Network error reaching Telegram. Check if api.telegram.org is reachable from this server (firewall/proxy may be blocking it).'
-      : err.message;
-    return res.status(500).json({ error: 'Server error', detail: hint, code: err.code });
+    console.error('sendTelegramDocument error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });
 
-// POST /api/sendTelegramMessage - server proxy to send text messages to Telegram
-app.post('/api/sendTelegramMessage', express.json(), async (req, res) => {
-  if (!HAS_UPLOAD_SUPPORT) return res.status(501).json({ error: 'Telegram proxy not enabled. Run: npm install multer node-fetch@2 form-data' });
+app.post('/api/sendTelegramMessage', async (req, res) => {
   try {
-    console.log('/api/sendTelegramMessage called, bodyKeys=', Object.keys(req.body||{}));
-    const token = req.body.token;
-    const chatId = req.body.chatId;
-    const text = req.body.text;
+    const { token, chatId, text } = req.body;
     if (!token || !chatId || !text) return res.status(400).json({ error: 'Missing fields' });
 
     const tgUrl = `https://api.telegram.org/bot${token}/sendMessage`;
     const r = await fetchWithRetry(tgUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: text })
+      body: JSON.stringify({ chat_id: chatId, text })
     });
     const json = await r.json();
-    console.log('Telegram sendMessage response:', json && (json.description || JSON.stringify(json).slice(0,200)));
-    if (!json) return res.status(500).json({ error: 'No response from Telegram' });
-    if (!json.ok) return res.status(502).json({ error: 'Telegram error', detail: json });
     return res.json(json);
   } catch (err) {
-    console.error('sendTelegramMessage error details:', err);
-    const isConnErr = err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED' || err.name === 'AbortError';
-    const hint = isConnErr
-      ? 'Network error reaching Telegram. Check if api.telegram.org is reachable from this server (firewall/proxy may be blocking it).'
-      : err.message;
-    return res.status(500).json({ error: 'Server error', detail: hint, code: err.code });
+    console.error('sendTelegramMessage error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
   }
-});
+});
+
+// Root route serves index.html
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// ==========================================
+// 7. START SERVER
+// ==========================================
+app.listen(PORT, () => {
+  console.log(`===============================================`);
+  console.log(`⚡ AKB High-Speed Backend Server Running`);
+  console.log(`🌐 Local URL: http://localhost:${PORT}`);
+  console.log(`🚀 Database: MongoDB & Fast Cache on /api/bootstrap`);
+  console.log(`📲 WhatsApp: http://localhost:${PORT}/api/whatsapp/status`);
+  console.log(`===============================================`);
+});

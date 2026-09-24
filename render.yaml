@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: anudeep-khadi-bandar
+    env: docker
+    plan: free
+    region: oregon
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false

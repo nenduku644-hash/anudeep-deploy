@@ -1,0 +1,12 @@
+{
+  "nextInvoiceNo": 25,
+  "inactivityTimeout": 300000,
+  "telegram": {
+    "token": "8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac",
+    "chatId": "6877857251"
+  },
+  "emailSettings": {
+    "defaultCC": "",
+    "subjectPrefix": "Tax Invoice"
+  }
+}

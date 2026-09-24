@@ -1,1 +1,266 @@
-[]
+[
+  {
+    "_id": "6ab54b75000b4cd536d42b58",
+    "id": 1790266228995,
+    "invoiceNo": 24,
+    "date": "2026-09-24",
+    "reverseCharge": "No",
+    "transportMode": "",
+    "lrNo": "",
+    "transportDate": "",
+    "supplyDate": "",
+    "bundles": "0",
+    "placeOfSupply": "Andhra Pradesh",
+    "stateCode": "37",
+    "receiver": {
+      "name": "Speed Test Customer",
+      "phone": "918367047947",
+      "address": "yuhj",
+      "gstin": "9876689",
+      "state": "Andhra Pradesh",
+      "stateCode": "37"
+    },
+    "consignee": {
+      "name": "Jagan Kandukuri",
+      "phone": "918367047947",
+      "address": "yuhj",
+      "gstin": "9876689",
+      "state": "Andhra Pradesh",
+      "stateCode": "37"
+    },
+    "customerPhone": "918367047947",
+    "items": [
+      {
+        "description": "yiukj",
+        "hsn": "5208",
+        "qty": 2,
+        "meters": 0,
+        "cms": 0,
+        "rate": 350,
+        "amount": 700
+      }
+    ],
+    "taxableAmount": 700,
+    "cgstAmount": 17.5,
+    "sgstAmount": 17.5,
+    "igstAmount": 35,
+    "rawGrandTotal": 770,
+    "roundOff": 0,
+    "totalAmount": 770,
+    "isInterState": false,
+    "__v": 0
+  },
+  {
+    "_id": "6ab5488605b6f372177b0e82",
+    "id": 1790265478569,
+    "invoiceNo": 23,
+    "date": "2026-09-24",
+    "reverseCharge": "No",
+    "transportMode": "",
+    "lrNo": "",
+    "transportDate": "",
+    "supplyDate": "",
+    "bundles": "0",
+    "placeOfSupply": "Andhra Pradesh",
+    "stateCode": "37",
+    "receiver": {
+      "name": "Jagan Kandukuri",
+      "phone": "8367047947",
+      "address": "yuhj",
+      "gstin": "9876689",
+      "state": "Andhra Pradesh",
+      "stateCode": "37"
+    },
+    "consignee": {
+      "name": "Jagan Kandukuri",
+      "phone": "8367047947",
+      "address": "uhjm",
+      "gstin": "987568",
+      "state": "Andhra Pradesh",
+      "stateCode": "37"
+    },
+    "customerPhone": "8367047947",
+    "items": [
+      {
+        "description": "yiukj",
+        "hsn": "098698",
+        "qty": 13,
+        "meters": 5,
+        "cms": 0,
+        "rate": 7898,
+        "amount": 102674
+      }
+    ],
+    "taxableAmount": 102674,
+    "cgstAmount": 2566.85,
+    "sgstAmount": 2566.85,
+    "igstAmount": 5133.7,
+    "rawGrandTotal": 112941.4,
+    "roundOff": -0.4,
+    "totalAmount": 112941,
+    "isInterState": false,
+    "__v": 0
+  },
+  {
+    "_id": "6ab5437605b6f372177b0e81",
+    "id": 1790264182844,
+    "invoiceNo": 22,
+    "date": "2026-09-24",
+    "reverseCharge": "No",
+    "transportMode": "65",
+    "lrNo": "dfv",
+    "transportDate": "",
+    "supplyDate": "",
+    "bundles": "0",
+    "placeOfSupply": "Andhra Pradesh",
+    "stateCode": "37",
+    "receiver": {
+      "name": "Jagan Kandukuri",
+      "phone": "8367047947",
+      "address": "yuhj",
+      "gstin": "9876689",
+      "state": "Andhra Pradesh",
+      "stateCode": "37"
+    },
+    "consignee": {
+      "name": "Jagan Kandukuri",
+      "phone": "8367047947",
+      "address": "uhjm",
+      "gstin": "987568",
+      "state": "Andhra Pradesh",
+      "stateCode": "37"
+    },
+    "customerPhone": "8367047947",
+    "items": [
+      {
+        "description": "yiukj",
+        "hsn": "098698",
+        "qty": 5,
+        "meters": 5,
+        "cms": 2,
+        "rate": 7898,
+        "amount": 39490
+      },
+      {
+        "description": "yiukj",
+        "hsn": "098698",
+        "qty": 7,
+        "meters": 1,
+        "cms": 0,
+        "rate": 7898,
+        "amount": 55286
+      }
+    ],
+    "taxableAmount": 94776,
+    "cgstAmount": 2369.4,
+    "sgstAmount": 2369.4,
+    "igstAmount": 4738.8,
+    "rawGrandTotal": 104253.6,
+    "roundOff": 0.4,
+    "totalAmount": 104254,
+    "isInterState": false,
+    "__v": 0
+  },
+  {
+    "_id": "6ab5421c05b6f372177b0e80",
+    "id": 1790263836436,
+    "invoiceNo": 21,
+    "date": "2026-09-24",
+    "reverseCharge": "No",
+    "transportMode": "",
+    "lrNo": "",
+    "transportDate": "",
+    "supplyDate": "",
+    "bundles": "0",
+    "placeOfSupply": "Andhra Pradesh",
+    "stateCode": "37",
+    "receiver": {
+      "name": "Anudeep Customer",
+      "phone": "8367047947",
+      "address": "",
+      "gstin": "",
+      "state": "Andhra Pradesh",
+      "stateCode": "37"
+    },
+    "consignee": {
+      "name": "",
+      "phone": "8367047947",
+      "address": "",
+      "gstin": "",
+      "state": "Andhra Pradesh",
+      "stateCode": "37"
+    },
+    "customerPhone": "8367047947",
+    "items": [
+      {
+        "description": "Cotton Shirt",
+        "hsn": "6205",
+        "qty": 2,
+        "meters": 0,
+        "cms": 0,
+        "rate": 450,
+        "amount": 900
+      }
+    ],
+    "taxableAmount": 900,
+    "cgstAmount": 22.5,
+    "sgstAmount": 22.5,
+    "igstAmount": 45,
+    "rawGrandTotal": 990,
+    "roundOff": 0,
+    "totalAmount": 990,
+    "isInterState": false,
+    "__v": 0
+  },
+  {
+    "_id": "6ab5392f1a4ad9f388eb3233",
+    "id": 1790261551598,
+    "invoiceNo": 20,
+    "date": "2026-09-24",
+    "reverseCharge": "No",
+    "transportMode": "",
+    "lrNo": "",
+    "transportDate": "",
+    "supplyDate": "",
+    "bundles": "0",
+    "placeOfSupply": "Andhra Pradesh",
+    "stateCode": "37",
+    "receiver": {
+      "name": "Rajesh Textiles",
+      "phone": "9876543210",
+      "address": "",
+      "gstin": "",
+      "state": "Andhra Pradesh",
+      "stateCode": "37"
+    },
+    "consignee": {
+      "name": "",
+      "phone": "9876543210",
+      "address": "",
+      "gstin": "",
+      "state": "Andhra Pradesh",
+      "stateCode": "37"
+    },
+    "customerPhone": "9876543210",
+    "items": [
+      {
+        "description": "yiukj",
+        "hsn": "098698",
+        "qty": 5,
+        "meters": 10,
+        "cms": 0,
+        "rate": 500,
+        "amount": 2500
+      }
+    ],
+    "taxableAmount": 2500,
+    "cgstAmount": 62.5,
+    "sgstAmount": 62.5,
+    "igstAmount": 125,
+    "rawGrandTotal": 2750,
+    "roundOff": 0,
+    "totalAmount": 2750,
+    "isInterState": false,
+    "__v": 0
+  }
+]

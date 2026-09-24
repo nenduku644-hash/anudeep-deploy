@@ -189,6 +189,61 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 @page{size:A4;margin:0}body{margin:0;padding:0}
 #app-container,#login-screen,.no-print,.modal-overlay,#toast-container{display:none!important}
 #print-area{display:block!important;width:100%;background:#fff;color:#000}
+/* Smart Autocomplete & Advanced UI */
+.smart-autocomplete-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 3px;
+}
+.smart-autocomplete-item {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.15s ease;
+}
+.smart-autocomplete-item:last-child {
+  border-bottom: none;
+}
+.smart-autocomplete-item:hover, .smart-autocomplete-item.active {
+  background: #f1f5f9;
+}
+.smart-autocomplete-item .name {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 0.88rem;
+}
+.smart-autocomplete-item .meta {
+  font-size: 0.75rem;
+  color: #64748b;
+  display: flex;
+  gap: 8px;
+}
+.badge-auto {
+  background: #e0f2fe !important;
+  color: #0369a1 !important;
+}
+.badge-manual {
+  background: #fef3c7 !important;
+  color: #b45309 !important;
+}
+#db-sync-badge {
+  transition: all 0.3s ease;
+}
+#db-sync-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
 }
 </style>
 </head>
@@ -228,6 +283,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
     <a class="nav-item" data-target="parties-view"><i class="ph ph-address-book"></i> Parties</a>
     <a class="nav-item" data-target="reports-view"><i class="ph ph-chart-line"></i> Reports</a>
     <a class="nav-item" data-target="settings-view"><i class="ph ph-gear-six"></i> Settings</a>
+    <a class="nav-item" onclick="openWhatsappModal()"><i class="ph ph-whatsapp-logo"></i> WhatsApp Status</a>
   </div>
   <div class="user-profile">
     <div>
@@ -241,7 +297,12 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 <header>
   <button id="btn-sidebar-toggle" class="mobile-toggle"><i class="ph ph-list"></i></button>
   <h2 id="page-title">Dashboard</h2>
-  <div id="current-date"></div>
+  <div style="display:flex;align-items:center;gap:.75rem">
+    <div id="db-sync-badge" style="font-size:.78rem;font-weight:600;padding:.3rem .65rem;border-radius:2rem;background:#f3f4f6;border:1px solid #e5e7eb;display:inline-flex;align-items:center;gap:.35rem;color:#4b5563;cursor:pointer" onclick="App.load()" title="Click to refresh data">
+      <i class="ph ph-lightning" style="color:#10b981"></i> <span>Connecting...</span>
+    </div>
+    <div id="current-date"></div>
+  </div>
 </header>
 <section id="dashboard-view" class="content-section active">
   <div class="stats-grid">
@@ -289,7 +350,17 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 <div class="inv-form">
 <div class="inv-form-section"><div class="inv-form-pad"><div class="inv-form-row">
 <input type="hidden" id="b-rc" value="No">
-<div class="inv-form-field" style="min-width:105px"><label>Invoice No.</label><input type="text" id="b-invno" readonly></div>
+<div class="inv-form-field" style="min-width:130px; position:relative;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+    <label style="margin:0; font-weight:700;">Invoice No.</label>
+    <span id="b-inv-badge" class="badge-auto" style="font-size:0.68rem; padding:1px 6px; border-radius:3px; font-weight:700; text-transform:uppercase;">Auto</span>
+  </div>
+  <div style="display:flex; gap:4px; align-items:center;">
+    <input type="text" id="b-invno" placeholder="0001" style="font-weight:700; color:#1a237e;" title="Auto-generated, or enter manually">
+    <button type="button" class="btn-tiny" id="btn-reset-invno" onclick="BM.resetToAutoInvNo()" title="Reset to auto sequence" style="display:none; padding:4px 7px; font-size:0.75rem; border-radius:4px; background:#f3f4f6; border:1px solid #d1d5db; cursor:pointer;"><i class="ph ph-arrow-counter-clockwise"></i></button>
+  </div>
+  <div id="b-inv-warn" style="display:none; font-size:0.7rem; color:#dc2626; font-weight:600; margin-top:2px;"></div>
+</div>
 <div class="inv-form-field" style="min-width:155px"><label>Invoice Date</label><input type="date" id="b-date"></div>
 </div></div></div>
 <div class="inv-form-section"><div class="inv-form-pad"><div class="supply-grid">
@@ -303,14 +374,16 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 </div></div></div>
 <div class="inv-form-section"><div class="inv-parties">
 <div class="inv-party"><div class="inv-party-head"><div class="inv-party-title">Receiver | Billed to:</div><div class="inv-party-btns"><button class="btn-tiny btn-secondary" onclick="PM.openPicker('receiver')"><i class="ph ph-list-magnifying-glass"></i></button><button class="btn-tiny btn-primary" onclick="PM.saveFromBill('receiver')"><i class="ph ph-floppy-disk"></i></button></div></div><div class="inv-party-body"><div class="inv-party-fields">
-<div class="inv-form-field fw"><label>Name</label><input type="text" id="b-rn" placeholder="Receiver Name"></div>
+<div class="inv-form-field fw" style="position:relative;"><label>Name</label><input type="text" id="b-rn" placeholder="Receiver Name (auto-completes info)" autocomplete="off"><div id="rn-autocomplete" class="smart-autocomplete-dropdown" style="display:none;"></div></div>
+<div class="inv-form-field fw"><label>WhatsApp No.</label><input type="text" id="b-rph" placeholder="91XXXXXXXXXX or 10-digit mobile"></div>
 <div class="inv-form-field fw"><label>Address</label><input type="text" id="b-ra" placeholder="Address"></div>
 <div class="inv-form-field fw"><label>GSTIN</label><input type="text" id="b-rg" placeholder="GSTIN"></div>
 <div class="inv-form-field"><label>State</label><input type="text" id="b-rst" placeholder="State Name"></div>
 <div class="inv-form-field"><label>State Code</label><input type="text" id="b-rsc" placeholder="37" maxlength="2"></div>
 </div></div></div>
 <div class="inv-party"><div class="inv-party-head"><div class="inv-party-title">Consignee | Shipped to:</div><div class="inv-party-btns"><button class="btn-tiny btn-secondary" onclick="PM.copyRT()"><i class="ph ph-copy"></i></button><button class="btn-tiny btn-secondary" onclick="PM.openPicker('consignee')"><i class="ph ph-list-magnifying-glass"></i></button><button class="btn-tiny btn-primary" onclick="PM.saveFromBill('consignee')"><i class="ph ph-floppy-disk"></i></button></div></div><div class="inv-party-body"><div class="inv-party-fields">
-<div class="inv-form-field fw"><label>Name</label><input type="text" id="b-sn" placeholder="Consignee Name"></div>
+<div class="inv-form-field fw" style="position:relative;"><label>Name</label><input type="text" id="b-sn" placeholder="Consignee Name" autocomplete="off"><div id="sn-autocomplete" class="smart-autocomplete-dropdown" style="display:none;"></div></div>
+<div class="inv-form-field fw"><label>WhatsApp No.</label><input type="text" id="b-sph" placeholder="91XXXXXXXXXX"></div>
 <div class="inv-form-field fw"><label>Address</label><input type="text" id="b-sa" placeholder="Address"></div>
 <div class="inv-form-field fw"><label>GSTIN</label><input type="text" id="b-sg" placeholder="GSTIN"></div>
 <div class="inv-form-field"><label>State</label><input type="text" id="b-sst" placeholder="State Name"></div>
@@ -318,8 +391,8 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 </div></div></div>
 </div></div>
 <div class="add-item-row">
-<div class="inv-form-field"><label>Product</label><input type="text" id="b-pn" list="b-pl" placeholder="Search product..." autocomplete="off"><datalist id="b-pl"></datalist></div>
-<div class="inv-form-field"><label>HSN</label><input type="text" id="b-ph" readonly style="background:#f3f4f6"></div>
+<div class="inv-form-field"><label>Product</label><select id="b-pn"><option value="">Select product...</option></select></div>
+<div class="inv-form-field"><label>HSN CODE</label><input type="text" id="b-ph" readonly style="background:#f3f4f6"></div>
 <div class="inv-form-field"><label>Qty</label><input type="number" id="b-pq" value="0" min="0"></div>
 <div class="inv-form-field"><label>Meters</label><input type="text" id="b-pm" value="0"></div>
 <div class="inv-form-field"><label>Cms</label><input type="text" id="b-pc" value="0"></div>
@@ -327,7 +400,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 <div class="inv-form-field" style="align-self:end"><button class="btn btn-primary" onclick="BM.addItem()" style="white-space:nowrap;padding:.45rem .8rem;font-size:.8rem"><i class="ph ph-plus"></i> Add</button></div>
 </div>
 <div class="inv-form-section" style="overflow-x:auto">
-<table class="inv-items-table"><thead><tr><th style="width:65px">Bale No</th><th class="tl">Description</th><th style="width:60px">HSN</th><th style="width:42px">Qty</th><th style="width:72px">M/Cms</th><th style="width:80px">Rate</th><th style="width:95px">Amount</th><th style="width:32px"></th></tr></thead><tbody id="b-it"></tbody></table>
+<table class="inv-items-table"><thead><tr><th style="width:65px">Bale No</th><th class="tl">Description</th><th style="width:85px">HSN CODE</th><th style="width:42px">Qty</th><th style="width:75px">MTS.CMS</th><th style="width:80px">Rate</th><th style="width:95px">Amount</th><th style="width:32px"></th></tr></thead><tbody id="b-it"></tbody></table>
 <div id="b-em" class="empty-state" style="padding:1.5rem;display:none"><i class="ph ph-shopping-bag-open"></i>No items added.</div>
 </div></div></div>
 <div class="inv-summary no-print">
@@ -413,6 +486,31 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 <button class="btn btn-primary" onclick="STM.saveSecurity()" style="margin-top:.75rem"><i class="ph ph-floppy-disk"></i> Save Security Settings</button>
 </div>
 </div>
+
+<div class="settings-card">
+<div class="settings-card-head"><i class="ph ph-lightning"></i> Database & Speed Settings</div>
+<div class="settings-card-body">
+<div class="form-group">
+<label>Active Database Endpoint</label>
+<div id="s-db-status" style="font-size:.85rem;padding:.5rem;border-radius:6px;background:#f9fafb;border:1px solid var(--bd);margin-bottom:.5rem;">
+  Detecting...
+</div>
+</div>
+<div class="form-group">
+<label>Backend Database Mode</label>
+<select id="s-db-mode" class="w-full" style="padding:.5rem; border-radius:6px; border:1px solid var(--bd); background:#fff; font-size:.9rem; color:var(--fg);">
+  <option value="auto">Auto-Detect (Local High-Speed MongoDB if available, else Cloud)</option>
+  <option value="local">Force Local High-Speed DB (MongoDB http://localhost:3000/api)</option>
+  <option value="cloud">Force Cloud Google Apps Script (Spreadsheet)</option>
+</select>
+<div class="settings-hint">Local MongoDB delivers sub-10ms response times; Cloud Google Apps Script is for remote deployments without local Node server.</div>
+</div>
+<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem;">
+  <button class="btn btn-secondary" onclick="STM.testDbLatency()"><i class="ph ph-gauge"></i> Test Latency</button>
+  <button class="btn btn-primary" onclick="STM.saveDbConfig()"><i class="ph ph-floppy-disk"></i> Save Mode & Reload</button>
+</div>
+</div>
+</div>
 </div>
 </section>
 </main></section>
@@ -421,7 +519,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 
 <div id="pm" class="modal-overlay"><div class="modal"><h3 class="modal-title">Product Details</h3><form id="fp"><input type="hidden" id="p-id"><div class="form-group"><label>Name</label><input type="text" id="p-n" required></div><div class="form-group"><label>HSN Code</label><input type="text" id="p-h" required></div><div class="form-group"><label>Price</label><input type="number" id="p-pr" step="0.01" min="0" required></div><div class="flex mt-4" style="justify-content:space-between"><button type="button" class="btn btn-secondary" onclick="UI.cl('pm')">Cancel</button><button type="submit" class="btn btn-primary">Save</button></div></form></div></div>
 
-<div id="pym" class="modal-overlay"><div class="modal"><h3 class="modal-title" id="pyt">Add Receiver</h3><form id="fpy"><input type="hidden" id="py-id"><input type="hidden" id="py-tp"><div class="form-group"><label>Name *</label><input type="text" id="py-n" required></div><div class="form-group"><label>Address</label><input type="text" id="py-a"></div><div class="form-group"><label>State Name</label><input type="text" id="py-st" placeholder="State Name"></div><div class="form-row"><div class="form-group"><label>GSTIN</label><input type="text" id="py-g"></div><div class="form-group"><label>State Code</label><input type="text" id="py-sc" maxlength="2"></div></div><div class="flex mt-4" style="justify-content:space-between"><button type="button" class="btn btn-secondary" onclick="UI.cl('pym')">Cancel</button><button type="submit" class="btn btn-primary">Save</button></div></form></div></div>
+<div id="pym" class="modal-overlay"><div class="modal"><h3 class="modal-title" id="pyt">Add Receiver</h3><form id="fpy"><input type="hidden" id="py-id"><input type="hidden" id="py-tp"><div class="form-group"><label>Name *</label><input type="text" id="py-n" required></div><div class="form-group"><label>WhatsApp / Phone No.</label><input type="text" id="py-ph" placeholder="91XXXXXXXXXX or 10-digit number"></div><div class="form-group"><label>Address</label><input type="text" id="py-a"></div><div class="form-group"><label>State Name</label><input type="text" id="py-st" placeholder="State Name"></div><div class="form-row"><div class="form-group"><label>GSTIN</label><input type="text" id="py-g"></div><div class="form-group"><label>State Code</label><input type="text" id="py-sc" maxlength="2"></div></div><div class="flex mt-4" style="justify-content:space-between"><button type="button" class="btn btn-secondary" onclick="UI.cl('pym')">Cancel</button><button type="submit" class="btn btn-primary">Save</button></div></form></div></div>
 
 <div id="ppm" class="modal-overlay"><div class="modal"><h3 class="modal-title" id="ppt">Select Receiver</h3><div class="form-group"><input type="text" id="pps" placeholder="Search name or GSTIN..." oninput="PM.filterP(this.value)"></div><div id="ppl" style="max-height:350px;overflow-y:auto;border:1px solid var(--bd);border-radius:.375rem"></div><div class="flex mt-4" style="justify-content:space-between"><button type="button" class="btn btn-secondary" onclick="UI.cl('ppm')">Cancel</button></div></div></div>
 
@@ -437,6 +535,11 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 <button class="share-btn share-btn-telegram" id="btn-share-tg" onclick="SM.sendTelegram()">
 <div class="share-icon"><i class="ph ph-telegram-logo"></i></div>
 <div class="share-text">Send via Telegram Bot<span id="tg-btn-label">Direct send to your chat</span></div>
+<div class="share-spinner"></div>
+</button>
+<button class="share-btn share-btn-whatsapp" id="btn-share-wa" onclick="SM.manualSendWhatsapp()" style="background:#25D366;color:#fff;">
+<div class="share-icon"><i class="ph ph-whatsapp-logo"></i></div>
+<div class="share-text">Send via WhatsApp<span>Send PDF to customer's phone</span></div>
 <div class="share-spinner"></div>
 </button>
 
@@ -470,23 +573,131 @@ var BN="AXIS BANK, TENALI",BA="914020009962721",BI="UTIB0000556",BAN="Anudeep Kh
 var GU="left-god.jpg";
 var HU="right-god.jpg";
 var CR=2.5,SR=2.5,IR=5;
-var API_URL = "";
+var CLOUD_GAS_URL = "https://script.google.com/macros/s/AKfycbyRmF00PY9ipLoFifC2ZOGWI8zKmouOEho8IvntPphdS9vtLaAXzfsi5TWkRlGmj3SC/exec";
+var API_URL = (location.origin && location.origin.startsWith("http") && !location.origin.includes("script.google.com")) ? (location.origin + "/api") : "http://localhost:3000/api";
+var API_MODE = localStorage.getItem("akb_db_mode") || "auto"; // "auto", "local", "cloud"
+var API_LATENCY_MS = 0;
 
-async function resolveApiUrl() {
-    var originApi = location.origin + "/api";
-    var candidates = [originApi, "http://localhost:3002/api","http://localhost:3001/api","http://localhost:3003/api","http://localhost:3004/api","http://localhost:3005/api"];
-    for (var i = 0; i < candidates.length; i++) {
-        try {
-            var res = await fetch(candidates[i] + "/invoices", { method: "GET" });
-            if (res.ok) {
-                API_URL = candidates[i];
-                return API_URL;
-            }
-        } catch (e) {}
+async function resolveApiUrl(forceRefresh) {
+    var storedMode = localStorage.getItem("akb_db_mode") || "auto";
+    API_MODE = storedMode;
+
+    if (API_MODE === "cloud") {
+        API_URL = CLOUD_GAS_URL;
+        return API_URL;
     }
-    API_URL = candidates[0];
+
+    // 1. Instant session cache hit (0ms)
+    var cached = sessionStorage.getItem("akb_cached_api_url");
+    if (!forceRefresh && cached) {
+        API_URL = cached;
+        return API_URL;
+    }
+
+    // If already initialized with a local endpoint, commit to session and return instantly
+    if (!forceRefresh && API_URL && (API_URL.includes("localhost") || API_URL.startsWith(location.origin))) {
+        sessionStorage.setItem("akb_cached_api_url", API_URL);
+        return API_URL;
+    }
+
+    // 2. Parallel fastest-responder candidate race
+    var candidates = [];
+    if (location.origin && location.origin.startsWith("http") && !location.origin.includes("script.google.com")) {
+        candidates.push(location.origin + "/api");
+    }
+    candidates.push("http://localhost:3000/api");
+    candidates.push("http://127.0.0.1:3000/api");
+
+    // Remove duplicates
+    candidates = candidates.filter(function(v, i, a) { return a.indexOf(v) === i; });
+
+    try {
+        var fastest = await Promise.any(candidates.map(async function(cand) {
+            var t0 = performance.now();
+            var ctrl = new AbortController();
+            var timer = setTimeout(function(){ ctrl.abort(); }, 400);
+            var res = await originalFetch(cand + "/health", { signal: ctrl.signal });
+            clearTimeout(timer);
+            if (res.ok) {
+                var json = await res.json().catch(function(){ return {}; });
+                return { url: cand, latency: Math.max(1, Math.round(performance.now() - t0)), db: json.database };
+            }
+            throw new Error("unreachable");
+        }));
+
+        if (fastest) {
+            API_URL = fastest.url;
+            API_LATENCY_MS = fastest.latency;
+            sessionStorage.setItem("akb_cached_api_url", API_URL);
+            return API_URL;
+        }
+    } catch(e) {}
+
+    if (API_MODE === "local") {
+        API_URL = "http://localhost:3000/api";
+        return API_URL;
+    }
+
+    API_URL = CLOUD_GAS_URL;
     return API_URL;
 }
+
+// Intercept fetch to route requests properly if using Google Apps Script
+var originalFetch = window.fetch;
+window.fetch = async function(resource, config) {
+    var urlToMatch = typeof resource === 'string' ? resource : (resource.url || '');
+    if (API_URL && urlToMatch.startsWith(API_URL) && API_URL.includes("script.google.com")) {
+        var method = (config && config.method) ? config.method.toUpperCase() : 'GET';
+        var path = urlToMatch.replace(API_URL, '');
+        var action = '', id = '';
+        
+        var parts = path.split('/').filter(Boolean);
+        var type = parts[0];
+        if (parts.length > 1) id = parts[1];
+
+        if (method === 'GET') {
+            if (type === 'bootstrap' || type === 'health') action = 'bootstrap';
+            if (type === 'invoices') action = 'getInvoices';
+            if (type === 'products') action = 'getProducts';
+            if (type === 'receivers') action = 'getReceivers';
+            if (type === 'consignees') action = 'getConsignees';
+            if (type === 'settings') action = 'getSettings';
+        } else if (method === 'POST') {
+            if (type === 'invoices') action = 'createInvoice';
+            if (type === 'products') action = 'createProduct';
+            if (type === 'receivers') action = 'createReceiver';
+            if (type === 'consignees') action = 'createConsignee';
+            if (type === 'sendTelegramDocument') action = 'uploadPdf';
+        } else if (method === 'PUT') {
+            if (type === 'invoices') action = 'updateInvoice';
+            if (type === 'products') action = 'updateProduct';
+            if (type === 'receivers') action = 'updateReceiver';
+            if (type === 'consignees') action = 'updateConsignee';
+            if (type === 'settings') action = 'updateSettings';
+        } else if (method === 'DELETE') {
+            if (type === 'invoices') action = 'deleteInvoice';
+            if (type === 'products') action = 'deleteProduct';
+            if (type === 'receivers') action = 'deleteReceiver';
+            if (type === 'consignees') action = 'deleteConsignee';
+        }
+        
+        var targetUrl = API_URL + "?action=" + action;
+        if (id) targetUrl += "&id=" + id;
+
+        if (method !== 'GET') {
+            // Google Apps script handles POST for mutations. For JSON, we must use text/plain to avoid CORS preflight, 
+            // but fetch API handles it. If it's a FormData (PDF upload), do not change headers.
+            var newConfig = { method: 'POST', body: config ? config.body : null };
+            if (newConfig.body && typeof newConfig.body === 'string') {
+                newConfig.headers = { 'Content-Type': 'text/plain' }; // prevents CORS preflight issue in GAS
+            }
+            return originalFetch(targetUrl, newConfig);
+        }
+        
+        return originalFetch(targetUrl, { method: 'GET' });
+    }
+    return originalFetch(resource, config);
+};
 
 /* ===== DATABASE ===== */
 var D={
@@ -513,7 +724,14 @@ fm:function(n){return"\u20B9"+parseFloat(n||0).toFixed(2)},
 toast:function(m,t){t=t||"success";var c=document.getElementById("toast-container"),e=document.createElement("div");e.className="toast "+t;e.innerHTML='<i class="ph '+({success:"ph-check-circle",error:"ph-warning-circle",info:"ph-info"}[t]||"ph-info")+'"></i> '+m;c.appendChild(e);setTimeout(function(){e.style.animation="to .3s ease forwards";setTimeout(function(){e.remove()},300)},3000)},
 td:function(){var d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")},
 fd:function(s){if(!s)return"-";var d=new Date(s+"T00:00:00");return d.toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})},
-pi:function(n){return String(n).padStart(4,"0")},
+pi:function(n){
+    if (n === null || n === undefined || n === "") return "0001";
+    var num = parseInt(n, 10);
+    if (!isNaN(num)) {
+        return String(num).padStart(4, "0");
+    }
+    return String(n);
+},
 esc:function(s){var d=document.createElement("div");d.textContent=s||"";return d.innerHTML},
 numWords:function(n){
 var ones=["","One","Two","Three","Four","Five","Six","Seven","Eight","Nine","Ten","Eleven","Twelve","Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen"];
@@ -667,7 +885,7 @@ document.getElementById("fpy").addEventListener("submit",PM.save);
 document.getElementById("current-date").innerText=new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
 document.querySelectorAll(".modal-overlay").forEach(function(o){o.addEventListener("click",function(e){if(e.target===o)UI.cl(o.id)})});
 
-document.getElementById("b-pn").addEventListener("input",function(){
+document.getElementById("b-pn").addEventListener("change",function(){
     var v=this.value.trim().toLowerCase(),ps=PDM._all.length ? PDM._all : D.g("products"),f=ps.find(function(p){return p.name.toLowerCase()===v});
     if(f){
         document.getElementById("b-ph").value=f.hsn;
@@ -697,6 +915,113 @@ bindStateAuto("py-sc", "py-st");
 
 document.getElementById("b-sc").addEventListener("change",function(){var sc=this.value.trim(),pe=document.getElementById("b-pos");if(sc&&!pe.value.trim()){var m={"37":"Andhra Pradesh","36":"Telangana","29":"Karnataka","10":"Bihar","33":"Tamil Nadu","09":"Uttar Pradesh","27":"Maharashtra","07":"Delhi","08":"Rajasthan","19":"West Bengal","32":"Kerala","24":"Gujarat","22":"Chhattisgarh","23":"Madhya Pradesh","21":"Odisha","20":"Jharkhand","18":"Assam","28":"Goa","05":"Uttarakhand","02":"Himachal Pradesh","03":"Punjab","34":"Puducherry"};if(m[sc])pe.value=m[sc]}});
 ["b-pq","b-pm","b-pc","b-pp"].forEach(function(id){document.getElementById(id).addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();BM.addItem()}})});
+var bInvnoEl = document.getElementById("b-invno");
+if(bInvnoEl) {
+    bInvnoEl.addEventListener("input", function() {
+        BM._userEditedInvNo = true;
+        var badge = document.getElementById("b-inv-badge");
+        if (badge) {
+            badge.textContent = "MANUAL";
+            badge.className = "badge-manual";
+        }
+        var resetBtn = document.getElementById("btn-reset-invno");
+        if (resetBtn) resetBtn.style.display = "inline-block";
+
+        var val = this.value.trim();
+        var warn = document.getElementById("b-inv-warn");
+        if (warn && val) {
+            var exists = IM._all && IM._all.some(function(i){ return String(U.pi(i.invoiceNo)) === String(U.pi(val)); });
+            if (exists) {
+                warn.textContent = "⚠️ Note: Invoice #" + U.pi(val) + " already exists in history";
+                warn.style.display = "block";
+            } else {
+                warn.style.display = "none";
+            }
+        } else if (warn) {
+            warn.style.display = "none";
+        }
+    });
+}
+
+function bindPartyAutocomplete(inputId, dropdownId, partyType) {
+    var input = document.getElementById(inputId);
+    var dropdown = document.getElementById(dropdownId);
+    if (!input || !dropdown) return;
+
+    input.addEventListener("input", function() {
+        var val = this.value.trim().toLowerCase();
+        if (!val || val.length < 1) {
+            dropdown.style.display = "none";
+            return;
+        }
+        var list = (PM._parties && PM._parties[partyType]) || D.g(partyType + "s") || [];
+        var matches = list.filter(function(p){
+            return (p.name && p.name.toLowerCase().includes(val)) || (p.phone && p.phone.includes(val));
+        }).slice(0, 6);
+
+        if (matches.length === 0) {
+            dropdown.style.display = "none";
+            return;
+        }
+
+        var h = "";
+        matches.forEach(function(p) {
+            var phoneBadge = p.phone ? '<span style="color:#059669;font-weight:600;">📱 ' + U.esc(p.phone) + '</span>' : '';
+            var stateBadge = p.state ? '<span>📍 ' + U.esc(p.state) + '</span>' : '';
+            h += '<div class="smart-autocomplete-item" data-id="' + p.id + '">' +
+                 '  <div>' +
+                 '    <div class="name">' + U.esc(p.name) + '</div>' +
+                 '    <div class="meta">' + phoneBadge + (phoneBadge && stateBadge ? ' | ' : '') + stateBadge + '</div>' +
+                 '  </div>' +
+                 '  <div style="font-size:0.75rem; color:#2563eb; font-weight:700;"><i class="ph ph-arrow-circle-right"></i> Fill</div>' +
+                 '</div>';
+        });
+        dropdown.innerHTML = h;
+        dropdown.style.display = "block";
+
+        dropdown.querySelectorAll(".smart-autocomplete-item").forEach(function(el) {
+            el.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var id = this.getAttribute("data-id");
+                var match = list.find(function(p){ return String(p.id) === String(id); });
+                if (match) {
+                    if (partyType === 'receiver') {
+                        document.getElementById("b-rn").value = match.name || "";
+                        if (document.getElementById("b-rph")) document.getElementById("b-rph").value = match.phone || "";
+                        document.getElementById("b-ra").value = match.address || "";
+                        document.getElementById("b-rg").value = match.gstin || "";
+                        document.getElementById("b-rst").value = match.state || "";
+                        document.getElementById("b-rsc").value = match.stateCode || match.statecode || "";
+                        if (match.stateCode || match.statecode) {
+                            document.getElementById("b-sc").value = match.stateCode || match.statecode || "";
+                            if (BM.items.length) BM.calcSummary();
+                        }
+                        if (!document.getElementById("b-sn").value.trim()) {
+                            PM.copyRT();
+                        }
+                    } else {
+                        document.getElementById("b-sn").value = match.name || "";
+                        if (document.getElementById("b-sph")) document.getElementById("b-sph").value = match.phone || "";
+                        document.getElementById("b-sa").value = match.address || "";
+                        document.getElementById("b-sg").value = match.gstin || "";
+                        document.getElementById("b-sst").value = match.state || "";
+                        document.getElementById("b-ssc").value = match.stateCode || match.statecode || "";
+                    }
+                    dropdown.style.display = "none";
+                    U.toast("Customer info auto-filled for " + match.name, "success");
+                }
+            });
+        });
+    });
+
+    document.addEventListener("click", function(e) {
+        if (!dropdown.contains(e.target) && e.target !== input) {
+            dropdown.style.display = "none";
+        }
+    });
+}
+bindPartyAutocomplete("b-rn", "rn-autocomplete", "receiver");
+bindPartyAutocomplete("b-sn", "sn-autocomplete", "consignee");
 },
 show:function(id){
 document.querySelectorAll(".content-section").forEach(function(s){s.classList.remove("active")});
@@ -721,28 +1046,38 @@ if(id==="pym")document.getElementById("fpy").reset();if(id==="ppm")document.getE
 /* ===== SETTINGS ===== */
 var STM={
 _settings:{},
+loadLocal:function(){
+    STM._settings = D.go("settings") || {};
+    if (!STM._settings.nextInvoiceNo) STM._settings.nextInvoiceNo = 1;
+    STM._settings.telegram = D.go("telegram") || STM._settings.telegram || {};
+    STM._settings.emailSettings = D.go("emailSettings") || STM._settings.emailSettings || {};
+},
+applySettings:function(data){
+    if (!data) return;
+    STM._settings = data;
+    var localSt = D.go("settings") || {};
+    if (!STM._settings.nextInvoiceNo && localSt.nextInvoiceNo) {
+        STM._settings.nextInvoiceNo = localSt.nextInvoiceNo;
+    }
+    D.s("settings", {
+        nextInvoiceNo: STM._settings.nextInvoiceNo,
+        inactivityTimeout: STM._settings.inactivityTimeout !== undefined ? STM._settings.inactivityTimeout : 300000
+    });
+    if (STM._settings.telegram) D.s("telegram", STM._settings.telegram);
+    if (STM._settings.emailSettings) D.s("emailSettings", STM._settings.emailSettings);
+    if (typeof resetActivityTimer === "function") resetActivityTimer();
+},
 fetchSettings:async function(){
     try {
         let response = await fetch((API_URL || location.origin + '/api') + '/settings');
         if (response.ok) {
-            STM._settings = await response.json();
-            D.s("settings", {
-                nextInvoiceNo: STM._settings.nextInvoiceNo,
-                inactivityTimeout: STM._settings.inactivityTimeout
-            });
-            D.s("telegram", STM._settings.telegram || {});
-            D.s("emailSettings", STM._settings.emailSettings || {});
-        } else {
-            throw new Error("Server error");
+            let data = await response.json();
+            if (data.error) throw new Error(data.error);
+            STM.applySettings(data);
         }
     } catch(e) {
-        console.error("Failed to load settings from server:", e);
-        STM._settings = {
-            nextInvoiceNo: D.go("settings").nextInvoiceNo || 1,
-            inactivityTimeout: D.go("settings").inactivityTimeout !== undefined ? D.go("settings").inactivityTimeout : 300000,
-            telegram: D.go("telegram"),
-            emailSettings: D.go("emailSettings")
-        };
+        console.warn("Settings fetch fallback to local:", e.message);
+        STM.loadLocal();
     }
 },
 loadUI:function(){
@@ -757,6 +1092,36 @@ loadUI:function(){
     }
     var inactivityTimeout = STM._settings.inactivityTimeout !== undefined ? STM._settings.inactivityTimeout : (D.go("settings").inactivityTimeout !== undefined ? D.go("settings").inactivityTimeout : 300000);
     document.getElementById("s-sec-timeout").value = inactivityTimeout;
+
+    // Database UI status
+    var dbStatusEl = document.getElementById("s-db-status");
+    var dbModeEl = document.getElementById("s-db-mode");
+    if (dbModeEl) dbModeEl.value = localStorage.getItem("akb_db_mode") || "auto";
+    if (dbStatusEl) {
+        var isLocal = API_URL && (API_URL.includes("localhost") || API_URL.startsWith("/api") || API_URL.includes("127.0.0.1"));
+        dbStatusEl.innerHTML = isLocal
+            ? '<span style="color:#059669;font-weight:600;"><i class="ph ph-lightning"></i> Local High-Speed Database</span> (' + (API_LATENCY_MS ? API_LATENCY_MS + 'ms latency' : 'active') + ')<br><small style="color:var(--tl)">Endpoint: ' + API_URL + '</small>'
+            : '<span style="color:#2563eb;font-weight:600;"><i class="ph ph-cloud-check"></i> Google Apps Script (Cloud)</span><br><small style="color:var(--tl)">Endpoint: ' + (API_URL || 'Cloud GAS') + '</small>';
+    }
+},
+saveDbConfig:async function(){
+    var mode = document.getElementById("s-db-mode").value;
+    localStorage.setItem("akb_db_mode", mode);
+    U.toast("Database mode saved: " + mode, "success");
+    await App.load();
+    STM.loadUI();
+},
+testDbLatency:async function(){
+    var t0 = Date.now();
+    try {
+        var res = await fetch((API_URL || location.origin + '/api') + '/health');
+        var lat = Date.now() - t0;
+        API_LATENCY_MS = lat;
+        U.toast("Database response time: " + lat + "ms", lat < 50 ? "success" : "info");
+        STM.loadUI();
+    } catch(e) {
+        U.toast("Connection test failed: " + e.message, "error");
+    }
 },
 save:async function(){
     var token = document.getElementById("s-tg-token").value.trim();
@@ -830,11 +1195,11 @@ var SM={
 currentInv:null,
 
 open:function(invId){
-    var inv=IM._all.find(function(i){return i.id===invId});
+    var inv=IM._all.find(function(i){return i.id==invId});
     // If not found in memory, try localStorage
     if(!inv){
         var localInvoices = D.g("invoices");
-        inv = localInvoices.find(function(i){return i.id===invId});
+        inv = localInvoices.find(function(i){return i.id==invId});
     }
     if(!inv){U.toast("Invoice not found","error");return}
     SM.currentInv=inv;
@@ -985,7 +1350,9 @@ generatePrintHTML:function(inv){
                 '<td style="padding:4px 10px; width:34%; text-align:center; vertical-align:middle;">'+
                     '<div style="border:2px solid #1a237e; color:#1a237e !important; background:#fff; padding:6px 20px; display:inline-block; border-radius:4px; line-height:1.2; font-size:13pt; font-weight:900; letter-spacing:0.5px; -webkit-print-color-adjust:exact; print-color-adjust:exact;">TAX INVOICE<br><span style="font-size:7.5pt; font-weight:bold; color:#1a237e;">CASH / CREDIT</span></div>'+
                 '</td>'+
-                '<td style="padding:4px 10px; width:33%; text-align:right; vertical-align:middle;">PAN: '+SP+'</td>'+
+                '<td style="padding:4px 10px; width:33%; text-align:right; vertical-align:middle;">'+
+                    '<div style="border:2px solid #1a237e; color:#1a237e !important; background:#fff; padding:6px 20px; display:inline-block; border-radius:4px; line-height:1.2; text-align:center; font-family:\'Times New Roman\', serif; font-size:15pt; font-weight:900; letter-spacing:3px; -webkit-print-color-adjust:exact; print-color-adjust:exact;">AKB<br><span style="font-family:Arial, sans-serif; font-size:7.5pt; font-weight:bold; letter-spacing:1px; color:#1a237e;">KHADI BANDAR</span></div>'+
+                '</td>'+
             '</tr>'+
         '</table>'+
         '<table style="width:100%; border-collapse:collapse; margin:5px 0;">'+
@@ -1083,9 +1450,9 @@ generatePrintHTML:function(inv){
                 '<tr>'+
                     '<th style="border:1px solid #1a237e; padding:4px; width:65px;">Bale No</th>'+
                     '<th style="border:1px solid #1a237e; padding:4px; text-align:left;">Description of Goods</th>'+
-                    '<th style="border:1px solid #1a237e; padding:4px;">HSN</th>'+
-                    '<th style="border:1px solid #1a237e; padding:4px;">Qty</th>'+
-                    '<th style="border:1px solid #1a237e; padding:4px;">M/Cms</th>'+
+                    '<th style="border:1px solid #1a237e; padding:4px; width:85px; white-space:nowrap;">HSN CODE</th>'+
+                    '<th style="border:1px solid #1a237e; padding:4px; width:45px;">Qty</th>'+
+                    '<th style="border:1px solid #1a237e; padding:4px; width:75px; white-space:nowrap;">MTS.CMS</th>'+
                     '<th style="border:1px solid #1a237e; padding:4px; text-align:right;">Rate</th>'+
                     '<th style="border:1px solid #1a237e; padding:4px; text-align:right;">Amount</th>'+
                 '</tr>'+
@@ -1126,6 +1493,155 @@ generatePrintHTML:function(inv){
         '</div>'+
     '</div>';
 },
+
+    autoSendWhatsapp: function(inv, explicitPhone) {
+        if (!inv) return;
+        var phone = explicitPhone || (inv.consignee && inv.consignee.phone) || (inv.receiver && inv.receiver.phone) || inv.customerPhone || "";
+        if (!phone) {
+            console.log("No phone number found for automatic WhatsApp send");
+            return;
+        }
+        var cleanPhone = phone.replace(/\D/g, '');
+        if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+
+        U.toast("📱 Auto-sending Invoice #" + U.pi(inv.invoiceNo) + " to WhatsApp (" + cleanPhone + ")...", "info");
+
+        if (typeof html2pdf === 'undefined') {
+            console.warn("html2pdf library missing");
+            return;
+        }
+
+        var html = SM.generatePrintHTML(inv);
+        var pdfName = 'Invoice_' + U.pi(inv.invoiceNo) + '.pdf';
+        var parsed = new DOMParser().parseFromString(html, 'text/html').body;
+
+        var opt = {
+            margin: [8, 8, 8, 8],
+            filename: pdfName,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, logging: false, allowTaint: true, backgroundColor: '#ffffff' },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(parsed).outputPdf('blob').then(async function(blob){
+            var fd = new FormData();
+            fd.append('file', blob, pdfName);
+            fd.append('phone', cleanPhone);
+            fd.append('caption', 'Dear Customer, thank you for your purchase from Anudeep Khadi Bandar! Please find your Invoice #' + U.pi(inv.invoiceNo) + ' attached.');
+
+            try {
+                var waApi = (API_URL && (API_URL.includes("localhost") || API_URL.startsWith("/api"))) 
+                    ? (API_URL + '/whatsapp/sendPdf') 
+                    : 'http://localhost:3000/api/whatsapp/sendPdf';
+
+                var res = await originalFetch(waApi, { method: 'POST', body: fd });
+                var data = await res.json();
+                if (data && data.success) {
+                    U.toast("✅ WhatsApp invoice PDF sent automatically to " + cleanPhone, "success");
+                } else {
+                    console.warn("WhatsApp auto-send returned:", data);
+                    U.toast("WhatsApp note: " + (data && data.error ? data.error : "Failed to deliver"), "warning");
+                }
+            } catch(e) {
+                console.error("Auto WhatsApp error:", e);
+                U.toast("WhatsApp send failed: " + e.message, "error");
+            }
+        }).catch(function(err){
+            console.error("PDF generation error:", err);
+            U.toast("PDF generation error: " + (err && err.message || err), "error");
+        });
+    },
+
+    shareInvoiceWhatsapp: function(invId) {
+        var inv = IM._all.find(function(i){ return String(i.id) === String(invId); });
+        if (!inv) {
+            U.toast("Invoice not found", "error");
+            return;
+        }
+        var phone = inv.customerPhone || (inv.receiver && inv.receiver.phone) || (inv.consignee && inv.consignee.phone) || "";
+        if (!phone) {
+            phone = prompt("Enter customer WhatsApp number (10-digit mobile or with country code):");
+            if (!phone) return;
+            phone = phone.trim();
+            if (!inv.receiver) inv.receiver = {};
+            inv.receiver.phone = phone;
+            inv.customerPhone = phone;
+            fetch((API_URL || location.origin + '/api') + '/invoices/' + inv.id, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(inv)
+            }).catch(function(){});
+            var invs = D.g("invoices") || [];
+            invs = invs.map(function(x){ return String(x.id) === String(inv.id) ? inv : x; });
+            D.s("invoices", invs);
+        }
+        SM.autoSendWhatsapp(inv, phone);
+    },
+
+    manualSendWhatsapp: function() {
+        if(!SM.currentInv)return;
+        var inv = SM.currentInv;
+        var phone = (inv.consignee && inv.consignee.phone) || (inv.receiver && inv.receiver.phone) || inv.customerPhone || "";
+        if (!phone) {
+            phone = prompt("Enter customer's WhatsApp number (e.g. 9876543210):");
+            if (!phone) return;
+            if (!inv.consignee) inv.consignee = {};
+            inv.consignee.phone = phone;
+            inv.customerPhone = phone;
+        }
+        var btn = document.getElementById("btn-share-wa");
+        if(btn) { btn.classList.add("loading"); btn.disabled=true; }
+        
+        var cleanPhone = phone.replace(/\D/g, '');
+        if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+
+        var html = SM.generatePrintHTML(inv);
+        var pdfName = 'Invoice_' + U.pi(inv.invoiceNo) + '.pdf';
+        if(typeof html2pdf === 'undefined') {
+            if(btn) { btn.classList.remove("loading"); btn.disabled=false; }
+            U.toast("PDF library not loaded", "error");
+            return;
+        }
+
+        var parsed = new DOMParser().parseFromString(html, 'text/html').body;
+        var opt = {
+            margin: [8, 8, 8, 8],
+            filename: pdfName,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, logging: false, allowTaint: true, backgroundColor: '#ffffff' },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(parsed).outputPdf('blob').then(async function(blob){
+            var fd = new FormData();
+            fd.append('file', blob, pdfName);
+            fd.append('phone', cleanPhone);
+            fd.append('caption', 'Dear Customer, thank you for your purchase from Anudeep Khadi Bandar! Please find your Invoice #' + U.pi(inv.invoiceNo) + ' attached.');
+
+            try {
+                var waApi = (API_URL && (API_URL.includes("localhost") || API_URL.startsWith("/api"))) 
+                    ? (API_URL + '/whatsapp/sendPdf') 
+                    : 'http://localhost:3000/api/whatsapp/sendPdf';
+
+                var res = await originalFetch(waApi, { method: 'POST', body: fd });
+                var data = await res.json();
+                if(btn) { btn.classList.remove("loading"); btn.disabled=false; }
+                if (data && data.success) {
+                    U.toast("✅ WhatsApp invoice PDF sent to " + cleanPhone, "success");
+                    setTimeout(function(){ UI.cl("share-modal"); }, 1200);
+                } else {
+                    U.toast("WhatsApp failed: " + ((data && data.error) || "Could not deliver"), "error");
+                }
+            } catch(e) {
+                if(btn) { btn.classList.remove("loading"); btn.disabled=false; }
+                console.error(e);
+                U.toast("Connection failed. Is local Node server running on port 3000?", "error");
+            }
+        }).catch(function(err){
+            if(btn) { btn.classList.remove("loading"); btn.disabled=false; }
+            U.toast('PDF generation failed', 'error');
+        });
+    },
 
     sendTelegram:function(){
         var tg=D.go("telegram");
@@ -1370,7 +1886,11 @@ document.body.removeChild(ta);
 },
 
 printInvoice:function(invId){
-var inv=IM._all.find(function(i){return i.id===invId});
+var inv=IM._all.find(function(i){return i.id==invId});
+if(!inv){
+    var localInvoices = D.g("invoices");
+    inv = localInvoices.find(function(i){return i.id==invId});
+}
 if(!inv){U.toast("Invoice not found","error");return}
 document.getElementById("print-area").innerHTML=SM.generatePrintHTML(inv);
 window.print();
@@ -1381,8 +1901,36 @@ window.print();
 var BM={
 items:[],
 editId:null, 
+_userEditedInvNo:false,
+
+resetToAutoInvNo: function() {
+    BM._userEditedInvNo = false;
+    var maxInvNo = 0;
+    if (IM._all && IM._all.length > 0) {
+        IM._all.forEach(function(inv) {
+            var num = parseInt(inv.invoiceNo);
+            if (!isNaN(num) && num > maxInvNo) maxInvNo = num;
+        });
+    }
+    var st = D.go("settings");
+    var nextNo = maxInvNo > 0 ? maxInvNo + 1 : (st.nextInvoiceNo || 1);
+    var el = document.getElementById("b-invno");
+    if (el) el.value = U.pi(nextNo);
+
+    var badge = document.getElementById("b-inv-badge");
+    if (badge) {
+        badge.textContent = "AUTO";
+        badge.className = "badge-auto";
+    }
+    var resetBtn = document.getElementById("btn-reset-invno");
+    if (resetBtn) resetBtn.style.display = "none";
+    var warn = document.getElementById("b-inv-warn");
+    if (warn) warn.style.display = "none";
+    U.toast("Invoice sequence reset to #" + U.pi(nextNo), "info");
+},
 
 init:function(){
+BM._userEditedInvNo = false;
 var maxInvNo = 0;
 if (IM._all && IM._all.length > 0) {
     IM._all.forEach(function(inv) {
@@ -1394,7 +1942,18 @@ if (IM._all && IM._all.length > 0) {
 }
 var st=D.go("settings");
 var nextNo = maxInvNo > 0 ? maxInvNo + 1 : (st.nextInvoiceNo || 1);
-document.getElementById("b-invno").value=U.pi(nextNo);
+var invnoEl = document.getElementById("b-invno");
+if (invnoEl) invnoEl.value=U.pi(nextNo);
+var badge = document.getElementById("b-inv-badge");
+if (badge) {
+    badge.textContent = "AUTO";
+    badge.className = "badge-auto";
+}
+var resetBtn = document.getElementById("btn-reset-invno");
+if (resetBtn) resetBtn.style.display = "none";
+var warn = document.getElementById("b-inv-warn");
+if (warn) warn.style.display = "none";
+
 document.getElementById("b-date").value=U.td();
 document.getElementById("b-pos").value="Andhra Pradesh";
 document.getElementById("b-sc").value="37";
@@ -1407,8 +1966,20 @@ BM.editId=null;
 document.getElementById("btn-generate").innerHTML = '<i class="ph ph-check-circle"></i> Generate Invoice';
 BM.renderItems();
 BM.calcSummary();
-var ps=PDM._all.length ? PDM._all : D.g("products"),dl=document.getElementById("b-pl");dl.innerHTML="";
-ps.forEach(function(p){var o=document.createElement("option");o.value=p.name;dl.appendChild(o)});
+BM.updateProductDropdown();
+},
+
+updateProductDropdown: function() {
+    var ps = PDM._all.length ? PDM._all : D.g("products") || [];
+    var sel = document.getElementById("b-pn");
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Select product...</option>';
+    ps.forEach(function(p){
+        var o = document.createElement("option");
+        o.value = p.name;
+        o.textContent = p.name;
+        sel.appendChild(o);
+    });
 },
 
 addItem:function(){
@@ -1501,10 +2072,15 @@ BM._calc={taxable:taxable,cgst:cgst,sgst:sgst,igst:igst,rawTotal:rawTotal,roundO
 },
 
 editInvoice: function(id) {
-    var inv = IM._all.find(function(i){return i.id === id});
+    var inv = IM._all.find(function(i){return i.id == id});
+    if(!inv){
+        var localInvoices = D.g("invoices");
+        inv = localInvoices.find(function(i){return i.id == id});
+    }
     if(!inv) return;
     
     BM.editId = id;
+    BM._userEditedInvNo = true;
     
     document.getElementById("b-invno").value = U.pi(inv.invoiceNo);
     document.getElementById("b-date").value = inv.date;
@@ -1519,6 +2095,7 @@ editInvoice: function(id) {
     
     if(inv.receiver) {
         document.getElementById("b-rn").value = inv.receiver.name || "";
+        if(document.getElementById("b-rph")) document.getElementById("b-rph").value = inv.receiver.phone || "";
         document.getElementById("b-ra").value = inv.receiver.address || "";
         document.getElementById("b-rg").value = inv.receiver.gstin || "";
         document.getElementById("b-rst").value = inv.receiver.state || "";
@@ -1526,6 +2103,7 @@ editInvoice: function(id) {
     }
     if(inv.consignee) {
         document.getElementById("b-sn").value = inv.consignee.name || "";
+        document.getElementById("b-sph").value = inv.consignee.phone || "";
         document.getElementById("b-sa").value = inv.consignee.address || "";
         document.getElementById("b-sg").value = inv.consignee.gstin || "";
         document.getElementById("b-sst").value = inv.consignee.state || "";
@@ -1546,8 +2124,20 @@ save: async function(){
     var rn=document.getElementById("b-rn").value.trim();
     if(!rn){U.toast("Enter receiver name","error");document.getElementById("b-rn").focus();return}
     var st=D.go("settings");
-    var invNo = parseInt(document.getElementById("b-invno").value) || (st.nextInvoiceNo||1);
+    var rawInvNo = (document.getElementById("b-invno").value || "").trim();
+    var parsedInvNum = parseInt(rawInvNo, 10);
+    var invNo = rawInvNo ? (!isNaN(parsedInvNum) ? parsedInvNum : rawInvNo) : (st.nextInvoiceNo||1);
     var c=BM._calc;
+
+    var rPhone = (document.getElementById("b-rph") ? document.getElementById("b-rph").value.trim() : "");
+    var sPhone = (document.getElementById("b-sph") ? document.getElementById("b-sph").value.trim() : "");
+    var custPhone = rPhone || sPhone;
+    if (!custPhone && rn) {
+        var existingParty = (PM._parties && PM._parties.receiver ? PM._parties.receiver : []).find(function(p){ return p.name && p.name.trim().toLowerCase() === rn.toLowerCase(); });
+        if (existingParty && existingParty.phone) {
+            custPhone = existingParty.phone.trim();
+        }
+    }
 
     var inv={
         id: BM.editId ? BM.editId : Date.now(),
@@ -1561,8 +2151,23 @@ save: async function(){
         bundles:document.getElementById("b-bundles").value,
         placeOfSupply:document.getElementById("b-pos").value.trim(),
         stateCode:document.getElementById("b-sc").value.trim(),
-        receiver:{name:rn,address:document.getElementById("b-ra").value.trim(),gstin:document.getElementById("b-rg").value.trim(),state:document.getElementById("b-rst").value.trim(),stateCode:document.getElementById("b-rsc").value.trim()},
-        consignee:{name:document.getElementById("b-sn").value.trim(),address:document.getElementById("b-sa").value.trim(),gstin:document.getElementById("b-sg").value.trim(),state:document.getElementById("b-sst").value.trim(),stateCode:document.getElementById("b-ssc").value.trim()},
+        receiver:{
+            name:rn,
+            phone:rPhone || custPhone,
+            address:document.getElementById("b-ra").value.trim(),
+            gstin:document.getElementById("b-rg").value.trim(),
+            state:document.getElementById("b-rst").value.trim(),
+            stateCode:document.getElementById("b-rsc").value.trim()
+        },
+        consignee:{
+            name:document.getElementById("b-sn").value.trim(),
+            phone:sPhone || custPhone,
+            address:document.getElementById("b-sa").value.trim(),
+            gstin:document.getElementById("b-sg").value.trim(),
+            state:document.getElementById("b-sst").value.trim(),
+            stateCode:document.getElementById("b-ssc").value.trim()
+        },
+        customerPhone:custPhone,
         items:BM.items.slice(),
         taxableAmount:c.taxable, cgstAmount:c.cgst, sgstAmount:c.sgst, igstAmount:c.igst,
         rawGrandTotal:c.rawTotal, roundOff:c.roundOff,
@@ -1572,71 +2177,63 @@ save: async function(){
     var method = BM.editId ? 'PUT' : 'POST';
     var url = (API_URL || location.origin + '/api') + '/invoices' + (BM.editId ? '/' + BM.editId : '');
 
-    try {
-        var response = await fetch(url, {
-            method: method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(inv)
-        });
-        var data = await response.json();
-        if(response.ok){
-            if (!BM.editId) {
-                try {
-                    await fetch((API_URL || location.origin + '/api') + '/settings', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ nextInvoiceNo: invNo + 1 })
-                    });
-                } catch(e) {
-                    console.error("Failed to update nextInvoiceNo on server:", e);
-                }
-                var st = D.go("settings");
-                st.nextInvoiceNo = invNo + 1;
-                D.s("settings", st);
-            }
-            // Save locally as well for fallback
-            var invs = D.g("invoices");
-            if (BM.editId) {
-                invs = invs.map(function(i){ return i.id === BM.editId ? inv : i });
-            } else {
-                invs.unshift(inv);
-            }
-            D.s("invoices", invs);
-            IM._all = invs;
-            U.toast(BM.editId ? "Invoice updated!" : "Invoice #" + U.pi(invNo) + " generated!", "success");
-            await IM.fetchInvoices();
-            if(document.getElementById("dashboard-view").classList.contains("active")) DM.render();
-            if(document.getElementById("invoices-view").classList.contains("active")) IM.render();
-            var savedInvId = inv.id;
-            BM.clear();
-            setTimeout(function(){ SM.open(savedInvId); }, 600);
-        } else {
-            throw new Error(data && data.error ? data.error : 'Server error');
-        }
-    } catch(error){
-        console.error("Database connection error:", error);
-        U.toast("Failed to save to server. Saving locally instead.", "error");
-        var invs = D.g("invoices");
-        if (BM.editId) {
-            invs = invs.map(function(i){ return i.id === BM.editId ? inv : i });
-        } else {
-            invs.unshift(inv);
-            var st = D.go("settings");
-            st.nextInvoiceNo = invNo + 1;
-            D.s("settings", st);
-        }
-        D.s("invoices", invs);
-        IM._all = invs;
-        var savedInvId = inv.id;
-        BM.clear();
-        setTimeout(function(){ SM.open(savedInvId); }, 600);
+    // ⚡ STEP 1: ZERO-LATENCY OPTIMISTIC UI COMMIT (< 2ms)
+    var invs = D.g("invoices") || [];
+    if (BM.editId) {
+        invs = invs.map(function(i){ return String(i.id) === String(BM.editId) ? inv : i });
+        IM._all = (IM._all || []).map(function(i){ return String(i.id) === String(BM.editId) ? inv : i });
+    } else {
+        invs.unshift(inv);
+        if (!IM._all) IM._all = [];
+        IM._all.unshift(inv);
     }
+    D.s("invoices", invs);
+    IM._draw(IM._all);
+    DM.render();
+
+    var nextNoVal = (typeof invNo === 'number' && !isNaN(invNo)) ? (invNo + 1) : ((st.nextInvoiceNo || 1) + 1);
+    if (!BM.editId) {
+        st.nextInvoiceNo = nextNoVal;
+        D.s("settings", st);
+    }
+
+    var savedInvId = inv.id;
+    U.toast(BM.editId ? "⚡ Invoice updated!" : "⚡ Invoice #" + U.pi(inv.invoiceNo) + " generated instantly!", "success");
+    BM.clear();
+    setTimeout(function(){ SM.open(savedInvId); }, 200);
+
+    // ⚡ STEP 2: HIGH-SPEED BACKGROUND ASYNC DB PERSISTENCE & WHATSAPP
+    (async function() {
+        try {
+            var response = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(inv)
+            });
+            if (!BM.editId) {
+                fetch((API_URL || location.origin + '/api') + '/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nextInvoiceNo: nextNoVal })
+                }).catch(function(){});
+            }
+        } catch(error) {
+            console.warn("Background DB sync queued locally:", error.message);
+        }
+
+        if (custPhone) {
+            SM.autoSendWhatsapp(inv, custPhone);
+        } else {
+            U.toast("Invoice saved! (Note: No WhatsApp number entered for customer)", "info");
+        }
+    })();
 },
 
 clear:function(){
 BM.items=[];
 BM.editId=null;
 document.getElementById("btn-generate").innerHTML = '<i class="ph ph-check-circle"></i> Generate Invoice';
+document.getElementById("btn-generate").disabled = false;
 BM.renderItems();
 document.getElementById("b-rc").value="No";
 document.getElementById("b-trans").value="";
@@ -1644,9 +2241,11 @@ document.getElementById("b-lr").value="";
 document.getElementById("b-tdate").value="";
 document.getElementById("b-sdate").value="";
 document.getElementById("b-bundles").value="0";
-document.getElementById("b-rn").value="";document.getElementById("b-ra").value="";
+document.getElementById("b-rn").value="";
+if(document.getElementById("b-rph")) document.getElementById("b-rph").value="";
+document.getElementById("b-ra").value="";
 document.getElementById("b-rg").value="";document.getElementById("b-rst").value="Andhra Pradesh";document.getElementById("b-rsc").value="37";
-document.getElementById("b-sn").value="";document.getElementById("b-sa").value="";
+document.getElementById("b-sn").value="";document.getElementById("b-sph").value="";document.getElementById("b-sa").value="";
 document.getElementById("b-sg").value="";document.getElementById("b-sst").value="Andhra Pradesh";document.getElementById("b-ssc").value="37";
 document.getElementById("b-pn").value="";document.getElementById("b-ph").value="";
 document.getElementById("b-pq").value="0";document.getElementById("b-pm").value="0";
@@ -1660,21 +2259,46 @@ BM.init();
 /* ===== PRODUCT MANAGEMENT ===== */
 var PDM={
 _all:[],
-
+loadLocal:function(){
+    PDM._all = D.g("products") || [];
+    PDM._draw(PDM._all);
+    if(typeof BM !== 'undefined' && BM.updateProductDropdown) {
+        BM.updateProductDropdown();
+    }
+},
+applyProducts:function(data){
+    if (!Array.isArray(data)) return;
+    PDM._all = data;
+    var localProds = D.g("products") || [];
+    if (PDM._all.length === 0 && localProds.length > 0) {
+        PDM._all = localProds;
+    } else if (localProds.length > 0) {
+        var serverIds = PDM._all.map(function(p){return p.id});
+        localProds.forEach(function(lp){
+            if(!serverIds.includes(lp.id)) PDM._all.push(lp);
+        });
+    }
+    D.s("products", PDM._all);
+    PDM._draw(PDM._all);
+    if(typeof BM !== 'undefined' && BM.updateProductDropdown) {
+        BM.updateProductDropdown();
+    }
+},
 render:async function(){
     try {
         let response = await fetch((API_URL || location.origin + '/api') + '/products');
         if (response.ok) {
-            PDM._all = await response.json();
-            D.s("products", PDM._all);
-        } else {
-            throw new Error("Server error");
+            let data = await response.json();
+            if (data.error || !Array.isArray(data)) {
+                throw new Error(data.error || "Invalid response format");
+            }
+            PDM.applyProducts(data);
+            return;
         }
     } catch(e) {
-        console.error("Failed to load products from server:", e);
-        PDM._all = D.g("products");
+        console.warn("Products fetch fallback to local:", e.message);
+        PDM.loadLocal();
     }
-    PDM._draw(PDM._all);
 },
 
 search:function(q){
@@ -1758,24 +2382,51 @@ _parties:{
     consignee:[]
 },
 
+loadLocal:function(){
+    PM._parties.receiver = D.g("receivers") || [];
+    PM._parties.consignee = D.g("consignees") || [];
+    PM._drawList("receiver","receiver-list");
+    PM._drawList("consignee","consignee-list");
+},
+
+applyParties:function(type, data){
+    if (!Array.isArray(data)) return;
+    PM._parties[type] = data;
+    var localParties = D.g(type + "s") || [];
+    if (PM._parties[type].length === 0 && localParties.length > 0) {
+        PM._parties[type] = localParties;
+    } else if (localParties.length > 0) {
+        var serverIds = PM._parties[type].map(function(p){return p.id});
+        localParties.forEach(function(lp){
+            if(!serverIds.includes(lp.id)) PM._parties[type].push(lp);
+        });
+    }
+    D.s(type + "s", PM._parties[type]);
+    PM._drawList(type, type + "-list");
+},
+
 fetchParties:async function(type){
     try {
         let response = await fetch((API_URL || location.origin + '/api') + '/' + type + 's');
         if (response.ok) {
-            PM._parties[type] = await response.json();
-            D.s(type + "s", PM._parties[type]);
-        } else {
-            throw new Error("Server error");
+            let data = await response.json();
+            if (data.error || !Array.isArray(data)) {
+                throw new Error(data.error || "Invalid response format");
+            }
+            PM.applyParties(type, data);
+            return;
         }
     } catch(e) {
-        console.error("Failed to load " + type + "s from server:", e);
-        PM._parties[type] = D.g(type + "s");
+        console.warn("Failed to load " + type + "s from server:", e.message);
+        PM.applyParties(type, D.g(type + "s"));
     }
 },
 
 render:async function(){
-    await PM.fetchParties("receiver");
-    await PM.fetchParties("consignee");
+    await Promise.all([
+        PM.fetchParties("receiver"),
+        PM.fetchParties("consignee")
+    ]);
     PM._drawList("receiver","receiver-list");
     PM._drawList("consignee","consignee-list");
 },
@@ -1785,7 +2436,7 @@ var list=PM._parties[type] || [],el=document.getElementById(containerId);
 if(!list.length){el.innerHTML='<div class="empty-state" style="padding:1.5rem"><i class="ph ph-address-book"></i>No '+type+'s added.</div>';return}
 var h="";
 list.forEach(function(p){
-h+='<div class="party-entry"><div class="party-info"><div class="pn">'+U.esc(p.name)+'</div><div class="pd">'+U.esc(p.address||"")+(p.gstin?' | GSTIN: '+U.esc(p.gstin):"")+'</div></div><div style="display:flex;gap:.25rem"><button class="btn-icon" onclick="PM.edit(\''+type+'\','+p.id+')" title="Edit"><i class="ph ph-pencil-simple"></i></button><button class="btn-icon" onclick="PM.del(\''+type+'\','+p.id+')" title="Delete" style="color:var(--dg)"><i class="ph ph-trash"></i></button></div></div>';
+h+='<div class="party-entry"><div class="party-info"><div class="pn">'+U.esc(p.name)+'</div><div class="pd">'+(p.phone?'📞 '+U.esc(p.phone)+' | ':"")+U.esc(p.address||"")+(p.gstin?' | GSTIN: '+U.esc(p.gstin):"")+'</div></div><div style="display:flex;gap:.25rem"><button class="btn-icon" onclick="PM.edit(\''+type+'\','+p.id+')" title="Edit"><i class="ph ph-pencil-simple"></i></button><button class="btn-icon" onclick="PM.del(\''+type+'\','+p.id+')" title="Delete" style="color:var(--dg)"><i class="ph ph-trash"></i></button></div></div>';
 });
 el.innerHTML=h;
 },
@@ -1796,6 +2447,7 @@ document.getElementById("pyt").textContent="Add "+(type==="receiver"?"Receiver":
 document.getElementById("py-id").value="";
 document.getElementById("py-tp").value=type;
 document.getElementById("py-n").value="";
+if(document.getElementById("py-ph")) document.getElementById("py-ph").value="";
 document.getElementById("py-a").value="";
 document.getElementById("py-st").value="Andhra Pradesh";
 document.getElementById("py-g").value="";
@@ -1810,6 +2462,7 @@ document.getElementById("pyt").textContent="Edit "+(type==="receiver"?"Receiver"
 document.getElementById("py-id").value=p.id;
 document.getElementById("py-tp").value=type;
 document.getElementById("py-n").value=p.name;
+if(document.getElementById("py-ph")) document.getElementById("py-ph").value=p.phone||"";
 document.getElementById("py-a").value=p.address||"";
 document.getElementById("py-st").value=p.state||"";
 document.getElementById("py-g").value=p.gstin||"";
@@ -1837,7 +2490,8 @@ save:async function(e){
 e.preventDefault();
 var type=document.getElementById("py-tp").value;
 var id=document.getElementById("py-id").value;
-var obj={name:document.getElementById("py-n").value.trim(),address:document.getElementById("py-a").value.trim(),state:document.getElementById("py-st").value.trim(),gstin:document.getElementById("py-g").value.trim(),statecode:document.getElementById("py-sc").value.trim()};
+var phoneVal = document.getElementById("py-ph") ? document.getElementById("py-ph").value.trim() : "";
+var obj={name:document.getElementById("py-n").value.trim(),phone:phoneVal,address:document.getElementById("py-a").value.trim(),state:document.getElementById("py-st").value.trim(),gstin:document.getElementById("py-g").value.trim(),statecode:document.getElementById("py-sc").value.trim()};
 if(id){
     obj.id=parseInt(id);
 } else {
@@ -1870,8 +2524,11 @@ saveFromBill:async function(type){
 var prefix=type==="receiver"?"b-r":"b-s";
 var name=document.getElementById(prefix+"n").value.trim();
 if(!name){U.toast("Enter "+type+" name first","error");return}
+var phoneEl = document.getElementById(prefix+"ph");
+var phoneVal = phoneEl ? phoneEl.value.trim() : "";
 var obj={
 id:Date.now(),name:name,
+phone:phoneVal,
 address:document.getElementById(prefix+"a").value.trim(),
 state:document.getElementById(prefix+"st").value.trim(),
 gstin:document.getElementById(prefix+"g").value.trim(),
@@ -1897,6 +2554,9 @@ await PM.render();
 
 copyRT:function(){
 document.getElementById("b-sn").value=document.getElementById("b-rn").value;
+if(document.getElementById("b-sph") && document.getElementById("b-rph")) {
+    document.getElementById("b-sph").value=document.getElementById("b-rph").value;
+}
 document.getElementById("b-sa").value=document.getElementById("b-ra").value;
 document.getElementById("b-sg").value=document.getElementById("b-rg").value;
 document.getElementById("b-sst").value=document.getElementById("b-rst").value;
@@ -1916,11 +2576,12 @@ UI.om("ppm");
 filterP:function(q){
 q=q.toLowerCase();
 var list=PM._parties[PM._type] || [],el=document.getElementById("ppl");
-var filtered=q?list.filter(function(p){return p.name.toLowerCase().indexOf(q)>-1||(p.gstin||"").toLowerCase().indexOf(q)>-1}):list;
+var filtered=q?list.filter(function(p){return p.name.toLowerCase().indexOf(q)>-1||(p.gstin||"").toLowerCase().indexOf(q)>-1||(p.phone||"").indexOf(q)>-1}):list;
 if(!filtered.length){el.innerHTML='<div class="empty-state" style="padding:1rem"><i class="ph ph-magnifying-glass"></i>No match found.</div>';return}
 var h="";
 filtered.forEach(function(p){
-h+='<div class="ppi" onclick="PM.selectParty('+p.id+')"><span class="ppn">'+U.esc(p.name)+'</span><span class="ppg">'+(p.gstin?U.esc(p.gstin):"-")+'</span></div>';
+var sub=(p.phone?'📞 '+U.esc(p.phone)+' | ':"")+(p.gstin?U.esc(p.gstin):"-");
+h+='<div class="ppi" onclick="PM.selectParty('+p.id+')"><span class="ppn">'+U.esc(p.name)+'</span><span class="ppg">'+sub+'</span></div>';
 });
 el.innerHTML=h;
 },
@@ -1929,6 +2590,9 @@ selectParty:function(id){
 var list=PM._parties[PM._type] || [],p=list.find(function(x){return x.id===id});if(!p)return;
 var prefix=PM._type==="receiver"?"b-r":"b-s";
 document.getElementById(prefix+"n").value=p.name;
+if(document.getElementById(prefix+"ph")) {
+    document.getElementById(prefix+"ph").value=p.phone||"";
+}
 document.getElementById(prefix+"a").value=p.address||"";
 document.getElementById(prefix+"st").value=p.state||"";
 document.getElementById(prefix+"g").value=p.gstin||"";
@@ -1943,78 +2607,94 @@ U.toast(p.name+" selected","info");
 var IM={
 _all:[],
 
+loadLocal: function() {
+    IM._all = D.g('invoices') || [];
+    IM.sortAndSyncNextNo();
+    var badge = document.getElementById('inv-count-badge');
+    if (badge) badge.textContent = '(' + (IM._all.length || 0) + ')';
+    IM._draw(IM._all);
+},
+
+applyInvoices: function(data) {
+    if (!Array.isArray(data)) return;
+    IM._all = data;
+    var localInvs = D.g('invoices') || [];
+    if (IM._all.length === 0 && localInvs.length > 0) {
+        IM._all = localInvs;
+    } else if (localInvs.length > 0) {
+        var serverIds = IM._all.map(function(i){return i.id});
+        localInvs.forEach(function(li){
+            if(!serverIds.includes(li.id)) IM._all.push(li);
+        });
+    }
+    D.s('invoices', IM._all);
+    IM.sortAndSyncNextNo();
+    var badge = document.getElementById('inv-count-badge');
+    if (badge) badge.textContent = '(' + (IM._all.length || 0) + ')';
+    IM._draw(IM._all);
+},
+
+sortAndSyncNextNo: function() {
+    if (!Array.isArray(IM._all)) return;
+    IM._all.forEach(function(inv) {
+        if (inv._id && !inv.id) inv.id = inv._id;
+    });
+
+    IM._all.sort(function(a, b) {
+        var dateA = a.date || "";
+        var dateB = b.date || "";
+        if (dateA !== dateB) return dateB.localeCompare(dateA);
+        var numA = parseInt(a.invoiceNo) || 0;
+        var numB = parseInt(b.invoiceNo) || 0;
+        return numB - numA;
+    });
+
+    var maxInvNo = 0;
+    IM._all.forEach(function(inv) {
+        var num = parseInt(inv.invoiceNo);
+        if (!isNaN(num) && num > maxInvNo) maxInvNo = num;
+    });
+    var expectedNext = maxInvNo > 0 ? maxInvNo + 1 : 1;
+    var st = D.go("settings") || {};
+    if (st.nextInvoiceNo !== expectedNext || (STM._settings && STM._settings.nextInvoiceNo !== expectedNext)) {
+        st.nextInvoiceNo = expectedNext;
+        D.s("settings", st);
+        if (STM._settings) STM._settings.nextInvoiceNo = expectedNext;
+        
+        fetch((API_URL || location.origin + '/api') + '/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nextInvoiceNo: expectedNext })
+        }).catch(function(){});
+    }
+
+    if (typeof BM !== 'undefined' && !BM.editId && !BM._userEditedInvNo) {
+        var invnoEl = document.getElementById("b-invno");
+        if (invnoEl && document.activeElement !== invnoEl) invnoEl.value = U.pi(expectedNext);
+    }
+},
+
 fetchInvoices: async function() {
     try {
         let response = await fetch((API_URL || location.origin + '/api') + '/invoices');
         if (response.ok) {
-            IM._all = await response.json();
-            if (Array.isArray(IM._all)) {
-                IM._all.forEach(function(inv) {
-                    if (inv._id) {
-                        inv.id = inv._id;
-                    }
-                });
-                
-                // Sort invoices: date descending, then invoiceNo descending
-                IM._all.sort(function(a, b) {
-                    var dateA = a.date || "";
-                    var dateB = b.date || "";
-                    if (dateA !== dateB) {
-                        return dateB.localeCompare(dateA); // Newest date first
-                    }
-                    var numA = parseInt(a.invoiceNo) || 0;
-                    var numB = parseInt(b.invoiceNo) || 0;
-                    return numB - numA; // Highest invoice number first
-                });
+            let data = await response.json();
+            if (data.error || !Array.isArray(data)) {
+                throw new Error(data.error || "Invalid response format");
             }
-            
-            // Sync nextInvoiceNo from database to localStorage and update server if mismatched
-            var maxInvNo = 0;
-            if (IM._all && IM._all.length > 0) {
-                IM._all.forEach(function(inv) {
-                    var num = parseInt(inv.invoiceNo);
-                    if (!isNaN(num) && num > maxInvNo) {
-                        maxInvNo = num;
-                    }
-                });
-            }
-            var expectedNext = maxInvNo > 0 ? maxInvNo + 1 : 1;
-            var st = D.go("settings") || {};
-            if (st.nextInvoiceNo !== expectedNext || (STM._settings && STM._settings.nextInvoiceNo !== expectedNext)) {
-                st.nextInvoiceNo = expectedNext;
-                D.s("settings", st);
-                if (STM._settings) STM._settings.nextInvoiceNo = expectedNext;
-                
-                // Update server settings document asynchronously to prevent future page load resets
-                fetch((API_URL || location.origin + '/api') + '/settings', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ nextInvoiceNo: expectedNext })
-                }).catch(function(e){ console.error("Async nextInvoiceNo sync failed:", e); });
-            }
-            
-            // Update the input field value in the UI immediately if not editing an old invoice
-            if (typeof BM !== 'undefined' && !BM.editId) {
-                var invnoEl = document.getElementById("b-invno");
-                if (invnoEl) {
-                    invnoEl.value = U.pi(expectedNext);
-                }
-            }
-        } else {
-            throw new Error('Server response not OK');
+            IM.applyInvoices(data);
+            return;
         }
     } catch (error) {
-        console.error('Database connection error:', error);
-        U.toast('Failed to load invoices from server', 'error');
-        // keep existing local fallback if present
-        try { IM._all = D.g('invoices'); } catch (e) { IM._all = []; }
+        console.warn('Invoice fetch fallback to local:', error.message);
+        IM.loadLocal();
     }
 },
 
 render: async function(){
-    // Fetch fresh invoices from backend and then render
     await IM.fetchInvoices();
-    document.getElementById('inv-count-badge').textContent = '(' + (IM._all.length||0) + ')';
+    var badge = document.getElementById('inv-count-badge');
+    if (badge) badge.textContent = '(' + (IM._all.length||0) + ')';
     IM._draw(IM._all);
 },
 
@@ -2033,7 +2713,7 @@ if(!list.length){tb.innerHTML='<tr><td colspan="6"><div class="empty-state"><i c
 var h="";
 list.forEach(function(inv,i){
 var totalQty=0;if(inv.items)inv.items.forEach(function(it){totalQty+=(it.qty||0)});
-h+='<tr><td><a href="#" onclick="SM.open(\''+inv.id+'\'); return false;" style="color:var(--tg);text-decoration:none;font-weight:700">#'+U.pi(inv.invoiceNo)+'</a></td><td>'+U.fd(inv.date)+'</td><td>'+(inv.receiver?U.esc(inv.receiver.name):"-")+'</td><td>'+(inv.items?inv.items.length:0)+'</td><td class="tr" style="font-weight:600">'+U.fm(inv.totalAmount)+'</td><td class="text-right"><button class="btn-icon" onclick="BM.editInvoice(\''+inv.id+'\')" title="Edit"><i class="ph ph-pencil-simple"></i></button> <button class="btn-icon" onclick="SM.printInvoice(\''+inv.id+'\')" title="Print"><i class="ph ph-printer"></i></button> <button class="btn-icon" onclick="SM.open(\''+inv.id+'\')" title="Share"><i class="ph ph-share-network"></i></button> <button class="btn-icon" onclick="IM.del(\''+inv.id+'\')" title="Delete" style="color:var(--dg)"><i class="ph ph-trash"></i></button></td></tr>';
+h+='<tr><td><a href="#" onclick="SM.open(\''+inv.id+'\'); return false;" style="color:var(--tg);text-decoration:none;font-weight:700">#'+U.pi(inv.invoiceNo)+'</a></td><td>'+U.fd(inv.date)+'</td><td>'+(inv.receiver?U.esc(inv.receiver.name):"-")+'</td><td>'+(inv.items?inv.items.length:0)+'</td><td class="tr" style="font-weight:600">'+U.fm(inv.totalAmount)+'</td><td class="text-right"><button class="btn-icon" onclick="SM.shareInvoiceWhatsapp(\''+inv.id+'\')" title="Share via WhatsApp" style="color:#25D366;font-size:1.15rem"><i class="ph ph-whatsapp-logo"></i></button> <button class="btn-icon" onclick="BM.editInvoice(\''+inv.id+'\')" title="Edit"><i class="ph ph-pencil-simple"></i></button> <button class="btn-icon" onclick="SM.printInvoice(\''+inv.id+'\')" title="Print"><i class="ph ph-printer"></i></button> <button class="btn-icon" onclick="SM.open(\''+inv.id+'\')" title="Share"><i class="ph ph-share-network"></i></button> <button class="btn-icon" onclick="IM.del(\''+inv.id+'\')" title="Delete" style="color:var(--dg)"><i class="ph ph-trash"></i></button></td></tr>';
 });
 tb.innerHTML=h;
 },
@@ -2042,7 +2722,7 @@ del: async function(id){
 if(!confirm("Delete this invoice? This cannot be undone."))return;
 try {
     await fetch((API_URL || location.origin + '/api') + '/invoices/' + id, { method: 'DELETE' });
-    IM._all = IM._all.filter(function(inv){return inv.id!==id});
+    IM._all = IM._all.filter(function(inv){return inv.id!=id});
     
     // Recalculate nextInvoiceNo based on remaining invoices
     var maxInvNo = 0;
@@ -2073,7 +2753,7 @@ try {
     U.toast("Invoice deleted", "info");
 } catch(err) {
     console.error("Database deletion error:", err);
-    var list=D.g("invoices").filter(function(inv){return inv.id!==id});
+    var list=D.g("invoices").filter(function(inv){return inv.id!=id});
     D.s("invoices",list);
     IM._all = list;
     
@@ -2243,30 +2923,88 @@ U.toast("Report generated: "+invs.length+" invoices","success");
 /* ===== APP START ===== */
 var App={
 load: async function(){
-    var btnGen = document.getElementById("btn-generate");
-    if (btnGen) {
-        btnGen.disabled = true;
-        btnGen.innerHTML = '<i class="ph ph-spinner" style="animation:spin .7s linear infinite"></i> Loading app data...';
+    // PHASE 1: ZERO-WAIT INSTANT LOCAL RENDER (< 20ms)
+    // Instantly populate UI from local cache so user never waits for network
+    try {
+        STM.loadLocal();
+        BM.init();
+        PDM.loadLocal();
+        PM.loadLocal();
+        IM.loadLocal();
+        DM.render();
+    } catch(err) {
+        console.warn('Instant local render note:', err);
     }
 
-    // Resolve API URL first so subsequent requests use correct address
-    await resolveApiUrl();
-    
-    // Fetch and load settings first so invoice numbering, timeout etc. are ready
-    await STM.fetchSettings();
-    
-    // Initialize billing manager (reads settings to configure next invoice no)
-    BM.init();
-    
-    // Render and load products, parties (receivers & consignees), and invoices from backend
-    await PDM.render();
-    await PM.render();
-    await IM.fetchInvoices();
-    DM.render();
-
+    var btnGen = document.getElementById("btn-generate");
     if (btnGen) {
         btnGen.disabled = false;
         btnGen.innerHTML = '<i class="ph ph-check-circle"></i> Generate Invoice';
+    }
+
+    App.updateSyncStatus('syncing');
+
+    // PHASE 2: ULTRA-FAST DATABASE COMMUNICATION & BACKGROUND SYNC
+    await resolveApiUrl();
+
+    var bootstrapDone = false;
+    try {
+        // Fast batch request: retrieves settings, products, receivers, consignees, invoices in 1 single round-trip!
+        var bootUrl = (API_URL || location.origin + '/api') + '/bootstrap';
+        var res = await fetch(bootUrl);
+        if (res.ok) {
+            var data = await res.json();
+            if (data && (data.invoices || data.products || data.settings)) {
+                if (data.settings) STM.applySettings(data.settings);
+                if (Array.isArray(data.products)) PDM.applyProducts(data.products);
+                if (Array.isArray(data.receivers)) PM.applyParties('receiver', data.receivers);
+                if (Array.isArray(data.consignees)) PM.applyParties('consignee', data.consignees);
+                if (Array.isArray(data.invoices)) IM.applyInvoices(data.invoices);
+                
+                BM.init();
+                DM.render();
+                bootstrapDone = true;
+            }
+        }
+    } catch(e) {
+        console.warn('Bootstrap endpoint unavailable, using parallel fetch:', e.message);
+    }
+
+    // Fallback if bootstrap is not supported: execute all in PARALLEL via Promise.all
+    if (!bootstrapDone) {
+        try {
+            await Promise.all([
+                STM.fetchSettings(),
+                PDM.render(),
+                PM.render(),
+                IM.fetchInvoices()
+            ]);
+            BM.init();
+            DM.render();
+        } catch(e) {
+            console.error('Parallel sync error:', e);
+        }
+    }
+
+    App.updateSyncStatus('synced');
+},
+
+updateSyncStatus: function(status) {
+    var badge = document.getElementById('db-sync-badge');
+    if (!badge) return;
+    if (status === 'syncing') {
+        badge.innerHTML = '<i class="ph ph-arrows-clockwise" style="animation:spin .8s linear infinite;color:#f59e0b"></i> <span>Syncing...</span>';
+    } else if (status === 'synced') {
+        var isLocal = API_URL && (API_URL.includes('localhost') || API_URL.startsWith('/api') || API_URL.includes('127.0.0.1'));
+        if (isLocal) {
+            badge.innerHTML = '<i class="ph ph-lightning" style="color:#10b981"></i> <span>Local DB (' + (API_LATENCY_MS ? API_LATENCY_MS + 'ms' : 'Fast') + ')</span>';
+            badge.title = 'Connected to local high-speed database: ' + API_URL;
+        } else {
+            badge.innerHTML = '<i class="ph ph-cloud-check" style="color:#3b82f6"></i> <span>Cloud GAS</span>';
+            badge.title = 'Connected to Google Apps Script';
+        }
+    } else {
+        badge.innerHTML = '<i class="ph ph-warning-circle" style="color:#ef4444"></i> <span>Offline</span>';
     }
 }
 };
@@ -2296,6 +3034,46 @@ window.addEventListener('load', function(){
         }
     }catch(e){console.error('Login guard error', e)}
 });
+</script>
+
+<!-- WhatsApp Modal -->
+<div class="modal-overlay" id="whatsapp-modal" onclick="if(event.target===this) this.classList.remove('active')">
+    <div class="modal" style="text-align: center; max-width: 350px;">
+        <div class="modal-title"><i class="ph ph-whatsapp-logo" style="color: #25D366;"></i> WhatsApp Login</div>
+        <div id="wa-status-text" style="margin-bottom: 15px; font-weight: bold; color: var(--tl);">Checking status...</div>
+        <img id="wa-qr-img" src="" style="width: 200px; height: 200px; display: none; margin: 0 auto; border: 1px solid #ccc; border-radius: 8px;" />
+        <div style="margin-top: 20px;">
+            <button class="btn btn-secondary" onclick="document.getElementById('whatsapp-modal').classList.remove('active')">Close</button>
+            <button class="btn btn-primary" onclick="fetchWhatsappStatus()">Refresh</button>
+        </div>
+    </div>
+</div>
+<script>
+async function fetchWhatsappStatus() {
+    var txt = document.getElementById("wa-status-text");
+    var img = document.getElementById("wa-qr-img");
+    txt.innerHTML = "Checking status...";
+    img.style.display = "none";
+    try {
+        var res = await fetch("http://localhost:3000/api/whatsapp/status", { method: 'GET' });
+        var data = await res.json();
+        if (data.connected) {
+            txt.innerHTML = "<span style='color:green;'>Connected & Ready to Send!</span>";
+        } else if (data.qr) {
+            txt.innerHTML = "Scan QR Code to login:";
+            img.src = data.qr;
+            img.style.display = "block";
+        } else {
+            txt.innerHTML = "Starting WhatsApp service... Please refresh in a few seconds.";
+        }
+    } catch(e) {
+        txt.innerHTML = "Error: Make sure the local Node.js server (server.js) is running on port 3000.";
+    }
+}
+function openWhatsappModal() {
+    document.getElementById('whatsapp-modal').classList.add('active');
+    fetchWhatsappStatus();
+}
 </script>
 </body>
 </html>

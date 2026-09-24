@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Environment and Secrets
+.env
+.env.local
+.env.*.local
+
+# WhatsApp Web Session & Cache (contains sensitive auth tokens and big binaries)
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Temporary and Uploads
+tmp/
+*.log
+*.pdf
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
