@@ -201,27 +201,47 @@ function createDoc(sheetName, payload) {
 function updateDoc(sheetName, id, payload) {
   const sheet = getSheet(sheetName);
   const data = sheet.getDataRange().getValues();
+  const idStr = String(id || '').trim();
   
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(id)) {
+    let match = (String(data[i][0]).trim() === idStr);
+    if (!match && data[i][1]) {
+      try {
+        const obj = JSON.parse(data[i][1]);
+        if (String(obj.id) === idStr || String(obj._id) === idStr || String(obj.invoiceNo) === idStr) {
+          match = true;
+        }
+      } catch(e) {}
+    }
+    if (match) {
       sheet.getRange(i + 1, 2).setValue(JSON.stringify(payload));
       return payload;
     }
   }
-  throw new Error('Document not found');
+  return createDoc(sheetName, payload);
 }
 
 function deleteDoc(sheetName, id) {
   const sheet = getSheet(sheetName);
   const data = sheet.getDataRange().getValues();
+  const idStr = String(id || '').trim();
   
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(id)) {
+    let match = (String(data[i][0]).trim() === idStr);
+    if (!match && data[i][1]) {
+      try {
+        const obj = JSON.parse(data[i][1]);
+        if (String(obj.id) === idStr || String(obj._id) === idStr || String(obj.invoiceNo) === idStr) {
+          match = true;
+        }
+      } catch(e) {}
+    }
+    if (match) {
       sheet.deleteRow(i + 1);
       return { deleted: true };
     }
   }
-  throw new Error('Document not found');
+  return { deleted: false, message: 'Document not found or already deleted' };
 }
 
 function getSettings() {

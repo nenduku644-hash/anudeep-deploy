@@ -13,7 +13,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/akb_billing';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/akb_billing';
 
 const zlib = require('zlib');
 
@@ -341,7 +341,7 @@ app.get('/api/bootstrap', async (req, res) => {
     }
 
     const payload = {
-      invoices: invoices || [],
+      invoices: (invoices || []).map(normalizeInvoice),
       products: products || [],
       receivers: receivers || [],
       consignees: consignees || [],
@@ -354,7 +354,7 @@ app.get('/api/bootstrap', async (req, res) => {
   } catch (err) {
     console.error('Bootstrap error, falling back:', err.message);
     const fallbackPayload = {
-      invoices: readJsonFile('invoices', []),
+      invoices: (readJsonFile('invoices', [])).map(normalizeInvoice),
       products: readJsonFile('products', []),
       receivers: readJsonFile('receivers', []),
       consignees: readJsonFile('consignees', []),
@@ -365,6 +365,36 @@ app.get('/api/bootstrap', async (req, res) => {
   }
 });
 
+// Helper functions for bulletproof invoice ID normalization & matching
+function normalizeInvoice(doc) {
+  if (!doc) return null;
+  const raw = doc.toObject ? doc.toObject() : doc;
+  const idStr = String(raw.id || raw._id || Date.now());
+  return {
+    ...raw,
+    id: idStr,
+    _id: idStr
+  };
+}
+
+function buildInvoiceQuery(idParam) {
+  const idStr = String(idParam || '').trim();
+  const conditions = [
+    { id: idStr }
+  ];
+  const num = Number(idStr);
+  if (!isNaN(num) && num > 0) {
+    conditions.push({ id: num });
+    conditions.push({ invoiceNo: num });
+  }
+  if (mongoose.Types.ObjectId.isValid(idStr) && idStr.length === 24) {
+    try {
+      conditions.push({ _id: new mongoose.Types.ObjectId(idStr) });
+    } catch (e) {}
+  }
+  return { $or: conditions };
+}
+
 // --- INVOICES CRUD ---
 app.get('/api/invoices', async (req, res) => {
   const cached = cache.get('invoices');
@@ -372,14 +402,15 @@ app.get('/api/invoices', async (req, res) => {
 
   try {
     if (isDbConnected) {
-      const invoices = await Invoice.find().sort({ date: -1, invoiceNo: -1 }).lean();
+      const rawInvoices = await Invoice.find().sort({ date: -1, invoiceNo: -1 }).lean();
+      const invoices = (rawInvoices || []).map(normalizeInvoice);
       cache.set('invoices', invoices, 8000);
       return res.json(invoices);
     }
   } catch (err) {
     console.error('Invoice DB read failed:', err.message);
   }
-  const fallback = readJsonFile('invoices', []);
+  const fallback = (readJsonFile('invoices', [])).map(normalizeInvoice);
   res.json(fallback);
 });
 
@@ -387,16 +418,15 @@ app.get('/api/invoices/:id', async (req, res) => {
   try {
     const idParam = req.params.id;
     if (isDbConnected) {
-      const query = mongoose.Types.ObjectId.isValid(idParam) ? { _id: idParam } : { id: Number(idParam) };
-      const inv = await Invoice.findOne(query);
-      if (inv) return res.json(inv);
+      const inv = await Invoice.findOne(buildInvoiceQuery(idParam)).lean();
+      if (inv) return res.json(normalizeInvoice(inv));
     }
   } catch (err) {
     console.error(err.message);
   }
   const list = readJsonFile('invoices', []);
-  const found = list.find(i => String(i.id) === String(req.params.id) || String(i._id) === String(req.params.id));
-  if (found) return res.json(found);
+  const found = list.find(i => String(i.id) === String(req.params.id) || String(i._id) === String(req.params.id) || String(i.invoiceNo) === String(req.params.id));
+  if (found) return res.json(normalizeInvoice(found));
   res.status(404).json({ error: 'Invoice not found' });
 });
 
@@ -404,15 +434,32 @@ app.post('/api/invoices', async (req, res) => {
   cache.invalidate('invoice');
   cache.invalidate('bootstrap');
   try {
-    let savedDoc = req.body;
-    if (isDbConnected) {
-      const doc = new Invoice(req.body);
-      savedDoc = await doc.save();
+    const body = { ...req.body };
+    const invId = body.id ? String(body.id) : String(Date.now());
+    body.id = invId;
+
+    if (!body._id || !mongoose.Types.ObjectId.isValid(body._id) || String(body._id).length !== 24) {
+      delete body._id;
     }
+
+    let savedDoc = body;
+    if (isDbConnected) {
+      const existing = await Invoice.findOne(buildInvoiceQuery(invId)).lean();
+      if (existing) {
+        delete body._id;
+        const updated = await Invoice.findOneAndUpdate(buildInvoiceQuery(invId), body, { new: true }).lean();
+        savedDoc = updated || body;
+      } else {
+        const doc = new Invoice(body);
+        const saved = await doc.save();
+        savedDoc = saved.toObject ? saved.toObject() : saved;
+      }
+    }
+    savedDoc = normalizeInvoice(savedDoc);
+
     // Also save to fallback file
-    const list = readJsonFile('invoices', []);
-    const id = savedDoc.id || savedDoc._id || Date.now();
-    savedDoc.id = id;
+    let list = readJsonFile('invoices', []);
+    list = list.filter(i => String(i.id) !== invId && String(i._id) !== invId && String(i.invoiceNo) !== String(body.invoiceNo));
     list.unshift(savedDoc);
     writeJsonFile('invoices', list);
 
@@ -428,17 +475,18 @@ app.put('/api/invoices/:id', async (req, res) => {
   cache.invalidate('bootstrap');
   try {
     const idParam = req.params.id;
+    const body = { ...req.body };
+    delete body._id;
     let updated = null;
     if (isDbConnected) {
-      const query = mongoose.Types.ObjectId.isValid(idParam) ? { _id: idParam } : { id: Number(idParam) };
-      updated = await Invoice.findOneAndUpdate(query, req.body, { new: true });
+      updated = await Invoice.findOneAndUpdate(buildInvoiceQuery(idParam), body, { new: true }).lean();
     }
     // Fallback file update
     let list = readJsonFile('invoices', []);
-    list = list.map(i => (String(i.id) === String(idParam) || String(i._id) === String(idParam)) ? { ...i, ...req.body } : i);
+    list = list.map(i => (String(i.id) === String(idParam) || String(i._id) === String(idParam) || String(i.invoiceNo) === String(idParam)) ? { ...i, ...req.body } : i);
     writeJsonFile('invoices', list);
 
-    res.json({ success: true, invoice: updated || req.body });
+    res.json({ success: true, invoice: normalizeInvoice(updated || req.body) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update invoice' });
@@ -450,19 +498,22 @@ app.delete('/api/invoices/:id', async (req, res) => {
   cache.invalidate('bootstrap');
   try {
     const idParam = req.params.id;
+    const idStr = String(idParam || '').trim();
     let deletedCount = 0;
     if (isDbConnected) {
-      const query = mongoose.Types.ObjectId.isValid(idParam) ? { _id: idParam } : { id: Number(idParam) };
-      const result = await Invoice.deleteOne(query);
+      const query = buildInvoiceQuery(idStr);
+      const result = await Invoice.deleteMany(query);
       deletedCount = result.deletedCount;
+      console.log(`Deleted invoice from MongoDB query:`, idStr, `deletedCount:`, deletedCount);
     }
     let list = readJsonFile('invoices', []);
-    list = list.filter(i => String(i.id) !== String(idParam) && String(i._id) !== String(idParam));
+    const beforeLen = list.length;
+    list = list.filter(i => String(i.id) !== idStr && String(i._id) !== idStr && String(i.invoiceNo) !== idStr);
     writeJsonFile('invoices', list);
 
-    res.json({ success: true, deletedCount });
+    res.json({ success: true, deletedCount: Math.max(deletedCount, beforeLen - list.length) });
   } catch (err) {
-    console.error(err);
+    console.error('Delete invoice error:', err);
     res.status(500).json({ error: 'Failed to delete invoice' });
   }
 });

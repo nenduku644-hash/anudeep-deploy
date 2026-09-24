@@ -1196,11 +1196,11 @@ var SM={
 currentInv:null,
 
 open:function(invId){
-    var inv=IM._all.find(function(i){return i.id==invId});
-    // If not found in memory, try localStorage
+    var target = String(invId || '').trim();
+    var inv = (IM._all || []).find(function(i){ return String(i.id) === target || String(i._id) === target || String(i.invoiceNo) === target; });
     if(!inv){
-        var localInvoices = D.g("invoices");
-        inv = localInvoices.find(function(i){return i.id==invId});
+        var localInvoices = D.g("invoices") || [];
+        inv = localInvoices.find(function(i){ return String(i.id) === target || String(i._id) === target || String(i.invoiceNo) === target; });
     }
     if(!inv){U.toast("Invoice not found","error");return}
     SM.currentInv=inv;
@@ -1554,7 +1554,12 @@ generatePrintHTML:function(inv){
     },
 
     shareInvoiceWhatsapp: function(invId) {
-        var inv = IM._all.find(function(i){ return String(i.id) === String(invId); });
+        var target = String(invId || '').trim();
+        var inv = (IM._all || []).find(function(i){ return String(i.id) === target || String(i._id) === target || String(i.invoiceNo) === target; });
+        if (!inv) {
+            var localInvoices = D.g("invoices") || [];
+            inv = localInvoices.find(function(i){ return String(i.id) === target || String(i._id) === target || String(i.invoiceNo) === target; });
+        }
         if (!inv) {
             U.toast("Invoice not found", "error");
             return;
@@ -1887,10 +1892,11 @@ document.body.removeChild(ta);
 },
 
 printInvoice:function(invId){
-var inv=IM._all.find(function(i){return i.id==invId});
+var target = String(invId || '').trim();
+var inv = (IM._all || []).find(function(i){ return String(i.id) === target || String(i._id) === target || String(i.invoiceNo) === target; });
 if(!inv){
-    var localInvoices = D.g("invoices");
-    inv = localInvoices.find(function(i){return i.id==invId});
+    var localInvoices = D.g("invoices") || [];
+    inv = localInvoices.find(function(i){ return String(i.id) === target || String(i._id) === target || String(i.invoiceNo) === target; });
 }
 if(!inv){U.toast("Invoice not found","error");return}
 document.getElementById("print-area").innerHTML=SM.generatePrintHTML(inv);
@@ -2073,14 +2079,15 @@ BM._calc={taxable:taxable,cgst:cgst,sgst:sgst,igst:igst,rawTotal:rawTotal,roundO
 },
 
 editInvoice: function(id) {
-    var inv = IM._all.find(function(i){return i.id == id});
+    var target = String(id || '').trim();
+    var inv = (IM._all || []).find(function(i){ return String(i.id) === target || String(i._id) === target || String(i.invoiceNo) === target; });
     if(!inv){
-        var localInvoices = D.g("invoices");
-        inv = localInvoices.find(function(i){return i.id == id});
+        var localInvoices = D.g("invoices") || [];
+        inv = localInvoices.find(function(i){ return String(i.id) === target || String(i._id) === target || String(i.invoiceNo) === target; });
     }
     if(!inv) return;
     
-    BM.editId = id;
+    BM.editId = String(inv.id || inv._id || target);
     BM._userEditedInvNo = true;
     
     document.getElementById("b-invno").value = U.pi(inv.invoiceNo);
@@ -2211,6 +2218,22 @@ save: async function(){
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(inv)
             });
+            if (response.ok) {
+                var resData = await response.json().catch(function(){ return null; });
+                if (resData && resData.invoice) {
+                    var serverInv = resData.invoice;
+                    var sid = String(serverInv.id || serverInv._id);
+                    inv.id = sid;
+                    inv._id = sid;
+                    var curInvs = D.g("invoices") || [];
+                    curInvs = curInvs.map(function(i){ return (String(i.id) === String(savedInvId) || String(i._id) === String(savedInvId)) ? serverInv : i; });
+                    D.s("invoices", curInvs);
+                    if (IM._all) {
+                        IM._all = IM._all.map(function(i){ return (String(i.id) === String(savedInvId) || String(i._id) === String(savedInvId)) ? serverInv : i; });
+                        IM._draw(IM._all);
+                    }
+                }
+            }
             if (!BM.editId) {
                 fetch((API_URL || location.origin + '/api') + '/settings', {
                     method: 'PUT',
@@ -2618,16 +2641,16 @@ loadLocal: function() {
 
 applyInvoices: function(data) {
     if (!Array.isArray(data)) return;
-    IM._all = data;
-    var localInvs = D.g('invoices') || [];
-    if (IM._all.length === 0 && localInvs.length > 0) {
-        IM._all = localInvs;
-    } else if (localInvs.length > 0) {
-        var serverIds = IM._all.map(function(i){return i.id});
-        localInvs.forEach(function(li){
-            if(!serverIds.includes(li.id)) IM._all.push(li);
-        });
-    }
+    
+    // Normalize every invoice so id and _id are guaranteed valid matching strings
+    var normalized = data.map(function(inv) {
+        var nid = String(inv.id || inv._id || Date.now());
+        inv.id = nid;
+        inv._id = nid;
+        return inv;
+    });
+
+    IM._all = normalized;
     D.s('invoices', IM._all);
     IM.sortAndSyncNextNo();
     var badge = document.getElementById('inv-count-badge');
@@ -2714,68 +2737,60 @@ if(!list.length){tb.innerHTML='<tr><td colspan="6"><div class="empty-state"><i c
 var h="";
 list.forEach(function(inv,i){
 var totalQty=0;if(inv.items)inv.items.forEach(function(it){totalQty+=(it.qty||0)});
-h+='<tr><td><a href="#" onclick="SM.open(\''+inv.id+'\'); return false;" style="color:var(--tg);text-decoration:none;font-weight:700">#'+U.pi(inv.invoiceNo)+'</a></td><td>'+U.fd(inv.date)+'</td><td>'+(inv.receiver?U.esc(inv.receiver.name):"-")+'</td><td>'+(inv.items?inv.items.length:0)+'</td><td class="tr" style="font-weight:600">'+U.fm(inv.totalAmount)+'</td><td class="text-right"><button class="btn-icon" onclick="SM.shareInvoiceWhatsapp(\''+inv.id+'\')" title="Share via WhatsApp" style="color:#25D366;font-size:1.15rem"><i class="ph ph-whatsapp-logo"></i></button> <button class="btn-icon" onclick="BM.editInvoice(\''+inv.id+'\')" title="Edit"><i class="ph ph-pencil-simple"></i></button> <button class="btn-icon" onclick="SM.printInvoice(\''+inv.id+'\')" title="Print"><i class="ph ph-printer"></i></button> <button class="btn-icon" onclick="SM.open(\''+inv.id+'\')" title="Share"><i class="ph ph-share-network"></i></button> <button class="btn-icon" onclick="IM.del(\''+inv.id+'\')" title="Delete" style="color:var(--dg)"><i class="ph ph-trash"></i></button></td></tr>';
+var invKey = String(inv.id || inv._id || '');
+h+='<tr><td><a href="#" onclick="SM.open(\''+invKey+'\'); return false;" style="color:var(--tg);text-decoration:none;font-weight:700">#'+U.pi(inv.invoiceNo)+'</a></td><td>'+U.fd(inv.date)+'</td><td>'+(inv.receiver?U.esc(inv.receiver.name):"-")+'</td><td>'+(inv.items?inv.items.length:0)+'</td><td class="tr" style="font-weight:600">'+U.fm(inv.totalAmount)+'</td><td class="text-right"><button class="btn-icon" onclick="SM.shareInvoiceWhatsapp(\''+invKey+'\')" title="Share via WhatsApp" style="color:#25D366;font-size:1.15rem"><i class="ph ph-whatsapp-logo"></i></button> <button class="btn-icon" onclick="BM.editInvoice(\''+invKey+'\')" title="Edit"><i class="ph ph-pencil-simple"></i></button> <button class="btn-icon" onclick="SM.printInvoice(\''+invKey+'\')" title="Print"><i class="ph ph-printer"></i></button> <button class="btn-icon" onclick="SM.open(\''+invKey+'\')" title="Share"><i class="ph ph-share-network"></i></button> <button class="btn-icon" onclick="IM.del(\''+invKey+'\')" title="Delete" style="color:var(--dg)"><i class="ph ph-trash"></i></button></td></tr>';
 });
 tb.innerHTML=h;
 },
 
 del: async function(id){
-if(!confirm("Delete this invoice? This cannot be undone."))return;
-try {
-    await fetch((API_URL || location.origin + '/api') + '/invoices/' + id, { method: 'DELETE' });
-    IM._all = IM._all.filter(function(inv){return inv.id!=id});
-    
-    // Recalculate nextInvoiceNo based on remaining invoices
-    var maxInvNo = 0;
-    IM._all.forEach(function(inv) {
-        var num = parseInt(inv.invoiceNo);
-        if (!isNaN(num) && num > maxInvNo) {
-            maxInvNo = num;
-        }
-    });
-    var newNextNo = maxInvNo > 0 ? maxInvNo + 1 : 1;
-    try {
-        await fetch((API_URL || location.origin + '/api') + '/settings', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nextInvoiceNo: newNextNo })
-        });
-    } catch(e) {
-        console.error("Failed to update nextInvoiceNo on server during delete:", e);
+if(!confirm("Delete this invoice? This cannot be undone.")) return;
+var idStr = String(id || '').trim();
+if (!idStr) {
+    U.toast("Invalid invoice ID", "error");
+    return;
+}
+
+// 1. Optimistically delete from state & localStorage immediately (< 1ms)
+IM._all = (IM._all || []).filter(function(inv){
+    return String(inv.id) !== idStr && String(inv._id) !== idStr;
+});
+D.s('invoices', IM._all);
+
+// 2. Recalculate nextInvoiceNo based on remaining invoices
+var maxInvNo = 0;
+IM._all.forEach(function(inv) {
+    var num = parseInt(inv.invoiceNo);
+    if (!isNaN(num) && num > maxInvNo) {
+        maxInvNo = num;
     }
-    var st = D.go("settings") || {};
-    st.nextInvoiceNo = newNextNo;
-    D.s("settings", st);
-    var invnoEl = document.getElementById("b-invno");
-    if (invnoEl) invnoEl.value = U.pi(newNextNo);
+});
+var newNextNo = maxInvNo > 0 ? maxInvNo + 1 : 1;
+var st = D.go("settings") || {};
+st.nextInvoiceNo = newNextNo;
+D.s("settings", st);
+var invnoEl = document.getElementById("b-invno");
+if (invnoEl && (!BM._userEditedInvNo || invnoEl.value === '')) {
+    invnoEl.value = U.pi(newNextNo);
+}
 
-    IM.render();
-    DM.render();
-    U.toast("Invoice deleted", "info");
+// 3. Immediately redraw UI
+var badge = document.getElementById('inv-count-badge');
+if (badge) badge.textContent = '(' + (IM._all.length || 0) + ')';
+IM._draw(IM._all);
+DM.render();
+U.toast("Invoice deleted", "info");
+
+// 4. Background server deletion
+try {
+    await fetch((API_URL || location.origin + '/api') + '/invoices/' + encodeURIComponent(idStr), { method: 'DELETE' });
+    fetch((API_URL || location.origin + '/api') + '/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nextInvoiceNo: newNextNo })
+    }).catch(function(){});
 } catch(err) {
-    console.error("Database deletion error:", err);
-    var list=D.g("invoices").filter(function(inv){return inv.id!=id});
-    D.s("invoices",list);
-    IM._all = list;
-    
-    // Recalculate locally
-    var maxInvNo = 0;
-    list.forEach(function(inv) {
-        var num = parseInt(inv.invoiceNo);
-        if (!isNaN(num) && num > maxInvNo) {
-            maxInvNo = num;
-        }
-    });
-    var newNextNo = maxInvNo > 0 ? maxInvNo + 1 : 1;
-    var st = D.go("settings") || {};
-    st.nextInvoiceNo = newNextNo;
-    D.s("settings", st);
-    var invnoEl = document.getElementById("b-invno");
-    if (invnoEl) invnoEl.value = U.pi(newNextNo);
-
-    IM.render();
-    DM.render();
-    U.toast("Invoice deleted locally", "info");
+    console.warn("Background server deletion warning:", err.message);
 }
 }
 };
