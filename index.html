@@ -279,6 +279,37 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
     to { transform: translateY(0); opacity: 1; }
 }
 
+/* ⚡ REAL-TIME LIVE SYNC ANIMATIONS */
+@keyframes livePulse {
+    0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+    70% { transform: scale(1.18); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+    100% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+.live-pulse-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 6px #10b981;
+    animation: livePulse 1.8s infinite;
+}
+.live-pulse-dot-warn {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #f59e0b;
+    box-shadow: 0 0 6px #f59e0b;
+}
+.live-row-highlight {
+    animation: liveRowFlash 2.5s ease-out;
+}
+@keyframes liveRowFlash {
+    0% { background-color: rgba(16, 185, 129, 0.4); }
+    100% { background-color: transparent; }
+}
+
 @media(max-width:768px){
     body {
         padding-bottom: 64px;
@@ -2459,6 +2490,7 @@ save: async function(){
 
     // ⚡ AUTOMATIC MESSAGE TO WHATSAPP BOT AND TO TELEGRAM BOT WITHOUT WAITING AND WITHOUT ASKING
     SM.autoDispatchAll(inv);
+    if (typeof RTM !== 'undefined' && RTM.broadcastLocal) RTM.broadcastLocal('invoice_created', { invoice: inv });
 
     // ⚡ STEP 2: HIGH-SPEED BACKGROUND ASYNC DB PERSISTENCE
     (async function() {
@@ -3025,6 +3057,7 @@ if (badge) badge.textContent = '(' + (IM._all.length || 0) + ')';
 IM._draw(IM._all);
 DM.render();
 U.toast("Invoice deleted", "info");
+if (typeof RTM !== 'undefined' && RTM.broadcastLocal) RTM.broadcastLocal('invoice_deleted', { id: idStr });
 
 // 4. Background server deletion
 try {
@@ -3183,9 +3216,269 @@ U.toast("Report generated: "+invs.length+" invoices","success");
 }
 };
 
+/* ===== REAL-TIME ENGINE (SSE + BROADCAST CHANNEL + AUDIO CUE) ===== */
+var RTM = {
+    source: null,
+    channel: null,
+    connected: false,
+    retryDelay: 1000,
+    retryTimer: null,
+    audioCtx: null,
+
+    init: function() {
+        // 1. Cross-Tab Real-time BroadcastChannel
+        try {
+            if (typeof BroadcastChannel !== 'undefined') {
+                RTM.channel = new BroadcastChannel('akb_realtime_channel');
+                RTM.channel.onmessage = function(ev) {
+                    if (ev && ev.data) {
+                        RTM.handleEvent(ev.data.type, ev.data.data, true);
+                    }
+                };
+            }
+        } catch(e) {
+            console.warn('BroadcastChannel note:', e);
+        }
+
+        // 2. Connect to Server-Sent Events stream
+        RTM.connectSSE();
+
+        // 3. Fallback polling for static hosting / offline sync
+        RTM.startHeartbeatCheck();
+    },
+
+    playChime: function() {
+        try {
+            var AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContext) return;
+            if (!RTM.audioCtx) RTM.audioCtx = new AudioContext();
+            if (RTM.audioCtx.state === 'suspended') {
+                RTM.audioCtx.resume();
+            }
+            var now = RTM.audioCtx.currentTime;
+            var osc = RTM.audioCtx.createOscillator();
+            var gain = RTM.audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(587.33, now); // D5
+            osc.frequency.exponentialRampToValueAtTime(880, now + 0.12); // A5
+            gain.gain.setValueAtTime(0.08, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+            osc.connect(gain);
+            gain.connect(RTM.audioCtx.destination);
+            osc.start(now);
+            osc.stop(now + 0.35);
+        } catch(e) {}
+    },
+
+    connectSSE: function() {
+        if (RTM.source) {
+            try { RTM.source.close(); } catch(e) {}
+            RTM.source = null;
+        }
+
+        var sseUrl = (API_URL && !API_URL.includes("script.google.com")) 
+            ? (API_URL + '/events') 
+            : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io") && !location.origin.includes("vercel.app")) 
+                ? (location.origin + '/api/events') 
+                : 'http://localhost:3000/api/events');
+
+        if (typeof EventSource === 'undefined') {
+            return;
+        }
+
+        try {
+            RTM.source = new EventSource(sseUrl);
+
+            RTM.source.addEventListener('connected', function(e) {
+                RTM.connected = true;
+                RTM.retryDelay = 1000;
+                RTM.updateBadge('connected');
+            });
+
+            RTM.source.addEventListener('invoice_created', function(e) {
+                try {
+                    var parsed = JSON.parse(e.data);
+                    if (parsed && parsed.data) {
+                        RTM.handleEvent('invoice_created', parsed.data, false);
+                    }
+                } catch(err) {}
+            });
+
+            RTM.source.addEventListener('invoice_updated', function(e) {
+                try {
+                    var parsed = JSON.parse(e.data);
+                    if (parsed && parsed.data) {
+                        RTM.handleEvent('invoice_updated', parsed.data, false);
+                    }
+                } catch(err) {}
+            });
+
+            RTM.source.addEventListener('invoice_deleted', function(e) {
+                try {
+                    var parsed = JSON.parse(e.data);
+                    if (parsed && parsed.data) {
+                        RTM.handleEvent('invoice_deleted', parsed.data, false);
+                    }
+                } catch(err) {}
+            });
+
+            RTM.source.addEventListener('whatsapp_status', function(e) {
+                try {
+                    var parsed = JSON.parse(e.data);
+                    if (parsed && parsed.data) {
+                        RTM.handleEvent('whatsapp_status', parsed.data, false);
+                    }
+                } catch(err) {}
+            });
+
+            RTM.source.addEventListener('ping', function() {
+                RTM.connected = true;
+                RTM.updateBadge('connected');
+            });
+
+            RTM.source.onerror = function() {
+                RTM.connected = false;
+                RTM.updateBadge('reconnecting');
+                if (RTM.source) {
+                    try { RTM.source.close(); } catch(e){}
+                    RTM.source = null;
+                }
+                clearTimeout(RTM.retryTimer);
+                RTM.retryTimer = setTimeout(function() {
+                    RTM.connectSSE();
+                }, Math.min(RTM.retryDelay, 10000));
+                RTM.retryDelay = Math.min(RTM.retryDelay * 1.5, 10000);
+            };
+        } catch(err) {
+            RTM.connected = false;
+            RTM.updateBadge('reconnecting');
+        }
+    },
+
+    broadcastLocal: function(type, data) {
+        if (RTM.channel) {
+            try {
+                RTM.channel.postMessage({ type: type, data: data, timestamp: Date.now() });
+            } catch(e) {}
+        }
+    },
+
+    handleEvent: function(type, data, isFromOtherTab) {
+        if (!data) return;
+
+        if (type === 'invoice_created') {
+            var inv = data.invoice;
+            if (!inv) return;
+            var sid = String(inv.id || inv._id || inv.invoiceNo);
+            
+            var curInvs = D.g("invoices") || [];
+            var exists = curInvs.some(function(i){ return String(i.id) === sid || String(i._id) === sid || String(i.invoiceNo) === String(inv.invoiceNo); });
+            if (!exists) {
+                curInvs.unshift(inv);
+                D.s("invoices", curInvs);
+                if (IM._all) {
+                    IM._all.unshift(inv);
+                    IM._draw(IM._all);
+                }
+                DM.render();
+                BM.init();
+                RTM.playChime();
+                var cust = (inv.receiver && inv.receiver.name) || (inv.consignee && inv.consignee.name) || 'Customer';
+                U.toast("⚡ Live: Invoice #" + U.pi(inv.invoiceNo) + " generated for " + cust + " (₹" + U.fm(inv.totalAmount) + ")", "success");
+
+                setTimeout(function() {
+                    var firstRow = document.querySelector("#inv-tbl tbody tr:first-child");
+                    if (firstRow) firstRow.classList.add("live-row-highlight");
+                }, 100);
+            }
+        } else if (type === 'invoice_updated') {
+            var inv = data.invoice;
+            if (!inv) return;
+            var sid = String(inv.id || inv._id || inv.invoiceNo);
+            var curInvs = D.g("invoices") || [];
+            curInvs = curInvs.map(function(i){ return (String(i.id) === sid || String(i._id) === sid || String(i.invoiceNo) === String(inv.invoiceNo)) ? inv : i; });
+            D.s("invoices", curInvs);
+            if (IM._all) {
+                IM._all = IM._all.map(function(i){ return (String(i.id) === sid || String(i._id) === sid || String(i.invoiceNo) === String(inv.invoiceNo)) ? inv : i; });
+                IM._draw(IM._all);
+            }
+            DM.render();
+        } else if (type === 'invoice_deleted') {
+            var delId = String(data.id || '');
+            var curInvs = D.g("invoices") || [];
+            curInvs = curInvs.filter(function(i){ return String(i.id) !== delId && String(i._id) !== delId && String(i.invoiceNo) !== delId; });
+            D.s("invoices", curInvs);
+            if (IM._all) {
+                IM._all = IM._all.filter(function(i){ return String(i.id) !== delId && String(i._id) !== delId && String(i.invoiceNo) !== delId; });
+                IM._draw(IM._all);
+            }
+            DM.render();
+        } else if (type === 'whatsapp_status') {
+            var waText = document.getElementById("wa-status-text");
+            var waQr = document.getElementById("wa-qr-img");
+            if (data.connected) {
+                if (waText) {
+                    waText.innerText = "Connected to WhatsApp!";
+                    waText.style.color = "green";
+                }
+                if (waQr) waQr.style.display = "none";
+            } else if (data.qr) {
+                if (waText) {
+                    waText.innerText = "Scan this QR code with WhatsApp:";
+                    waText.style.color = "orange";
+                }
+                if (waQr) {
+                    waQr.src = data.qr;
+                    waQr.style.display = "block";
+                }
+            }
+        }
+    },
+
+    updateBadge: function(state) {
+        var badge = document.getElementById('db-sync-badge');
+        if (!badge) return;
+        if (state === 'connected') {
+            badge.style.background = '#ecfdf5';
+            badge.style.border = '1px solid #10b981';
+            badge.style.color = '#065f46';
+            badge.innerHTML = '<span class="live-pulse-dot"></span> <span style="font-weight:700;letter-spacing:0.5px">LIVE REAL-TIME</span>';
+            badge.title = 'Real-Time Stream Active (Connected via SSE)';
+        } else if (state === 'reconnecting') {
+            badge.style.background = '#fffbeb';
+            badge.style.border = '1px solid #f59e0b';
+            badge.style.color = '#92400e';
+            badge.innerHTML = '<span class="live-pulse-dot-warn"></span> <span>Reconnecting...</span>';
+            badge.title = 'Reconnecting to Real-Time Server...';
+        } else {
+            badge.style.background = '#fef2f2';
+            badge.style.border = '1px solid #ef4444';
+            badge.style.color = '#991b1b';
+            badge.innerHTML = '<i class="ph ph-warning-circle" style="color:#ef4444"></i> <span>Offline</span>';
+        }
+    },
+
+    startHeartbeatCheck: function() {
+        setInterval(async function() {
+            if (!RTM.connected) {
+                try {
+                    var res = await fetch((API_URL || location.origin + '/api') + '/health');
+                    if (res.ok) {
+                        RTM.connectSSE();
+                    }
+                } catch(e) {}
+            }
+        }, 8000);
+    }
+};
+
 /* ===== APP START ===== */
 var App={
 load: async function(){
+    // Initialize Real-Time Engine (SSE + Cross-Tab Channel)
+    if (typeof RTM !== 'undefined' && RTM.init) {
+        RTM.init();
+    }
     // PHASE 1: ZERO-WAIT INSTANT LOCAL RENDER (< 20ms)
     // Instantly populate UI from local cache so user never waits for network
     try {

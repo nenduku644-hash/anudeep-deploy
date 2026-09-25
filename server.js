@@ -230,6 +230,23 @@ function getDefaultSettings() {
 }
 
 // ==========================================
+// ⚡ REAL-TIME ENGINE (SERVER-SENT EVENTS - SSE)
+// ==========================================
+const sseClients = new Set();
+
+function broadcastRealtime(eventType, payload) {
+  const data = JSON.stringify({ type: eventType, data: payload, timestamp: Date.now() });
+  const message = `event: ${eventType}\ndata: ${data}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.res.write(message);
+    } catch (err) {
+      sseClients.delete(client);
+    }
+  }
+}
+
+// ==========================================
 // 3. WHATSAPP CLIENT SETUP
 // ==========================================
 let qrCodeDataUrl = null;
@@ -259,6 +276,7 @@ try {
     isWhatsappConnected = false;
     try {
       qrCodeDataUrl = await qrcode.toDataURL(qr);
+      broadcastRealtime('whatsapp_status', { connected: false, status: 'qr_ready', qr: qrCodeDataUrl });
     } catch (err) {
       console.error('Failed to generate QR Data URL', err);
     }
@@ -268,6 +286,7 @@ try {
     console.log('⚡ WhatsApp Client is ready!');
     isWhatsappConnected = true;
     qrCodeDataUrl = null;
+    broadcastRealtime('whatsapp_status', { connected: true, status: 'ready' });
   });
 
   client.on('authenticated', () => {
@@ -277,11 +296,13 @@ try {
   client.on('auth_failure', msg => {
     console.error('WhatsApp Authentication failure', msg);
     isWhatsappConnected = false;
+    broadcastRealtime('whatsapp_status', { connected: false, status: 'auth_failure' });
   });
 
   client.on('disconnected', (reason) => {
     console.log('WhatsApp Client disconnected', reason);
     isWhatsappConnected = false;
+    broadcastRealtime('whatsapp_status', { connected: false, status: 'disconnected', reason });
     client.initialize().catch(e => console.warn('WA re-init error:', e.message));
   });
 
@@ -302,9 +323,35 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     database: isDbConnected ? 'mongodb' : 'fallback-file',
     whatsapp: isWhatsappConnected,
+    realtimeClients: sseClients.size,
     timestamp: Date.now()
   });
 });
+
+// ⚡ REAL-TIME SERVER-SENT EVENTS (SSE) STREAM
+app.get('/api/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (res.flushHeaders) res.flushHeaders();
+
+  const clientId = Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  const clientObj = { id: clientId, res };
+  sseClients.add(clientObj);
+
+  // Initial connection handshake
+  res.write(`event: connected\ndata: ${JSON.stringify({ status: 'connected', clientsCount: sseClients.size, isWhatsappConnected, timestamp: Date.now() })}\n\n`);
+
+  req.on('close', () => {
+    sseClients.delete(clientObj);
+  });
+});
+
+// Real-Time Heartbeat ping every 15s to keep connections alive
+setInterval(() => {
+  broadcastRealtime('ping', { time: Date.now(), clients: sseClients.size });
+}, 15000);
 
 // ⚡ BATCH BOOTSTRAP ENDPOINT: Loads EVERYTHING in ONE single round trip (under 10ms)
 app.get('/api/bootstrap', async (req, res) => {
@@ -466,6 +513,9 @@ app.post('/api/invoices', async (req, res) => {
     // ⚡ AUTOMATIC DISPATCH TO WHATSAPP BOT & TELEGRAM BOT WITHOUT WAITING AND WITHOUT ASKING
     autoDispatchBots(savedDoc).catch(e => console.error('[Auto-Dispatch Error]', e.message));
 
+    // ⚡ REAL-TIME BROADCAST TO ALL CONNECTED DEVICES/TABS
+    broadcastRealtime('invoice_created', { invoice: savedDoc });
+
     res.json({ success: true, invoice: savedDoc });
   } catch (err) {
     console.error(err);
@@ -489,7 +539,11 @@ app.put('/api/invoices/:id', async (req, res) => {
     list = list.map(i => (String(i.id) === String(idParam) || String(i._id) === String(idParam) || String(i.invoiceNo) === String(idParam)) ? { ...i, ...req.body } : i);
     writeJsonFile('invoices', list);
 
-    res.json({ success: true, invoice: normalizeInvoice(updated || req.body) });
+    const finalInv = normalizeInvoice(updated || req.body);
+    // ⚡ REAL-TIME BROADCAST
+    broadcastRealtime('invoice_updated', { invoice: finalInv });
+
+    res.json({ success: true, invoice: finalInv });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update invoice' });
@@ -513,6 +567,9 @@ app.delete('/api/invoices/:id', async (req, res) => {
     const beforeLen = list.length;
     list = list.filter(i => String(i.id) !== idStr && String(i._id) !== idStr && String(i.invoiceNo) !== idStr);
     writeJsonFile('invoices', list);
+
+    // ⚡ REAL-TIME BROADCAST
+    broadcastRealtime('invoice_deleted', { id: idStr });
 
     res.json({ success: true, deletedCount: Math.max(deletedCount, beforeLen - list.length) });
   } catch (err) {
