@@ -463,6 +463,9 @@ app.post('/api/invoices', async (req, res) => {
     list.unshift(savedDoc);
     writeJsonFile('invoices', list);
 
+    // ⚡ AUTOMATIC DISPATCH TO WHATSAPP BOT & TELEGRAM BOT WITHOUT WAITING AND WITHOUT ASKING
+    autoDispatchBots(savedDoc).catch(e => console.error('[Auto-Dispatch Error]', e.message));
+
     res.json({ success: true, invoice: savedDoc });
   } catch (err) {
     console.error(err);
@@ -929,6 +932,117 @@ app.post('/api/sendTelegramMessage', async (req, res) => {
     return res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });
+
+// ⚡ AUTOMATED BACKGROUND BOT DISPATCH SYSTEM (TELEGRAM & WHATSAPP)
+async function autoDispatchBots(inv) {
+  if (!inv) return;
+  const invNo = String(inv.invoiceNo || inv.id || 'NEW').padStart(4, '0');
+  const custName = (inv.receiver && inv.receiver.name) || (inv.consignee && inv.consignee.name) || 'Customer';
+  const custPhone = (inv.receiver && inv.receiver.phone) || (inv.consignee && inv.consignee.phone) || inv.customerPhone || '';
+  const totalAmt = typeof inv.totalAmount === 'number' ? inv.totalAmount.toFixed(2) : (inv.totalAmount || '0.00');
+  const itemsCount = (inv.items && inv.items.length) || 0;
+
+  // 1. DISPATCH TO TELEGRAM BOT (Zero Waiting / Instant)
+  try {
+    const settings = readJsonFile('settings', {});
+    const customTg = settings.telegram || {};
+    const baseTokens = [
+      customTg.token || '8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac',
+      '8916828449:AAE7LTVutOAtABoogooF5XTleqwIPztmfDs'
+    ].filter(Boolean);
+
+    const baseChats = [
+      customTg.chatId || '6877857251',
+      '8436142413',
+      '8703423129'
+    ].filter(Boolean);
+
+    const uniqueTokens = [...new Set(baseTokens)];
+    const uniqueChats = [...new Set(baseChats)];
+
+    let itemLines = '';
+    if (inv.items && inv.items.length) {
+      itemLines = inv.items.slice(0, 10).map((it, idx) => 
+        `  • Bale ${it.baleNo || (idx+1)}: ${it.description || 'Item'} (${it.qty || 0} pcs) - ₹${Number(it.amount||0).toFixed(2)}`
+      ).join('\n');
+      if (inv.items.length > 10) itemLines += `\n  ... and ${inv.items.length - 10} more items`;
+    }
+
+    const tgText = `🧾 *TAX INVOICE #${invNo}*\n` +
+      `🏪 *ANUDEEP KHADI BANDAR, TENALI*\n` +
+      `────────────────────────\n` +
+      `👤 *Customer*: ${custName}\n` +
+      (custPhone ? `📞 *Phone*: ${custPhone}\n` : '') +
+      `📅 *Date*: ${inv.date || new Date().toISOString().slice(0, 10)}\n` +
+      (inv.placeOfSupply ? `📍 *Place of Supply*: ${inv.placeOfSupply} (${inv.stateCode || '37'})\n` : '') +
+      `────────────────────────\n` +
+      (itemLines ? `📦 *Items* (${itemsCount}):\n${itemLines}\n────────────────────────\n` : '') +
+      `💰 *Taxable Amount*: ₹${Number(inv.taxableAmount || 0).toFixed(2)}\n` +
+      `➕ *ADD CGST (2.5%)*: ₹${Number(inv.cgstAmount || 0).toFixed(2)}\n` +
+      `➕ *ADD SGST (2.5%)*: ₹${Number(inv.sgstAmount || 0).toFixed(2)}\n` +
+      `➕ *ADD IGST (5%)*: ₹${Number(inv.igstAmount || 0).toFixed(2)}\n` +
+      `💵 *Grand Total*: ₹${totalAmt}\n` +
+      `────────────────────────\n` +
+      `⚡ *Status*: Automatic Message Sent (No Waiting / No Asking)`;
+
+    for (const token of uniqueTokens) {
+      for (const chatId of uniqueChats) {
+        try {
+          const tgUrl = `https://api.telegram.org/bot${token}/sendMessage`;
+          await fetchWithRetry(tgUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: tgText, parse_mode: 'Markdown' })
+          });
+          console.log(`[Auto-Telegram] Dispatched invoice #${invNo} to Telegram chat ${chatId}`);
+        } catch (tgErr) {
+          console.warn(`[Auto-Telegram] Chat ${chatId} warning:`, tgErr.message);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Auto-Telegram] Error:', err.message);
+  }
+
+  // 2. DISPATCH TO WHATSAPP BOT (Zero Waiting / Instant)
+  try {
+    if (isWhatsappConnected && client) {
+      const recipientPhones = [];
+      if (custPhone) recipientPhones.push(custPhone);
+      const storePhones = ['919441753678', '919390361151'];
+      for (const sp of storePhones) {
+        if (!recipientPhones.includes(sp)) recipientPhones.push(sp);
+      }
+
+      const waText = `🧾 *ANUDEEP KHADI BANDAR*\n` +
+        `*TAX INVOICE #${invNo}*\n\n` +
+        `Dear ${custName},\n` +
+        `Thank you for your purchase!\n\n` +
+        `📅 Date: ${inv.date || new Date().toISOString().slice(0, 10)}\n` +
+        `📦 Items: ${itemsCount}\n` +
+        `💵 Grand Total: ₹${totalAmt}\n\n` +
+        `GSTIN: 37BTMPS9234C1ZA\n` +
+        `Ph: 9441753678, 9390361151\n` +
+        `Tenali, Andhra Pradesh`;
+
+      for (let phone of recipientPhones) {
+        let clean = phone.replace(/\D/g, '');
+        if (clean.length === 10) clean = '91' + clean;
+        if (clean.length >= 10) {
+          const targetChatId = clean + '@c.us';
+          try {
+            await client.sendMessage(targetChatId, waText);
+            console.log(`[Auto-WhatsApp] Dispatched invoice #${invNo} text to ${targetChatId}`);
+          } catch (waErr) {
+            console.warn(`[Auto-WhatsApp] Send to ${targetChatId} warning:`, waErr.message);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Auto-WhatsApp] Error:', err.message);
+  }
+}
 
 // Root route serves index.html
 app.get('/', (req, res) => {

