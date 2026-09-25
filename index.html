@@ -539,8 +539,12 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 </button>
 <button class="share-btn share-btn-whatsapp" id="btn-share-wa" onclick="SM.manualSendWhatsapp()" style="background:#25D366;color:#fff;">
 <div class="share-icon"><i class="ph ph-whatsapp-logo"></i></div>
-<div class="share-text">Send via WhatsApp<span>Send PDF to customer's phone</span></div>
+<div class="share-text">Send via WhatsApp Bot<span>Send PDF directly to customer</span></div>
 <div class="share-spinner"></div>
+</button>
+<button class="share-btn" onclick="SM.openDirectWhatsapp(SM.currentInv)" style="background:#128C7E;color:#fff;">
+<div class="share-icon"><i class="ph ph-chat-circle-dots"></i></div>
+<div class="share-text">Direct WhatsApp Chat<span>Send invoice text via WhatsApp Web/App</span></div>
 </button>
 
 <button class="share-btn share-btn-pdf" onclick="SM.downloadPDF()">
@@ -833,9 +837,11 @@ init:function(){
             if (document.getElementById("login-remember").checked) {
                 localStorage.setItem("akb_saved_user", u);
                 localStorage.setItem("akb_saved_pwd", p);
+                localStorage.setItem("akb_auth_persistent", "1");
             } else {
                 localStorage.removeItem("akb_saved_user");
                 localStorage.removeItem("akb_saved_pwd");
+                localStorage.removeItem("akb_auth_persistent");
             }
             sessionStorage.setItem("akb_auth","1");
             AM.ok();
@@ -850,12 +856,14 @@ init:function(){
     if(bypass){
         bypass.addEventListener('click', function(){
             sessionStorage.setItem('akb_auth','1');
+            localStorage.setItem('akb_auth_persistent','1');
             location.reload();
         });
     }
 document.getElementById("btn-logout").addEventListener("click",function(){if(confirm("Are you sure you want to logout?"))AM.out()})},
 chk:function(){
-    if(sessionStorage.getItem("akb_auth")==="1") {
+    if(sessionStorage.getItem("akb_auth")==="1" || (localStorage.getItem("akb_auth_persistent")==="1" && (localStorage.getItem("akb_saved_user")||"").toLowerCase()==="sridhar")) {
+        sessionStorage.setItem("akb_auth","1");
         AM.ok();
     } else {
         if (sessionStorage.getItem("akb_inactivity_logout") === "1") {
@@ -872,7 +880,11 @@ ok:function(){
     setupActivityListeners();
     U.toast("Welcome back, Sridhar","info");
 },
-out:function(){sessionStorage.removeItem("akb_auth");location.reload()}
+out:function(){
+    sessionStorage.removeItem("akb_auth");
+    localStorage.removeItem("akb_auth_persistent");
+    location.reload();
+}
 };
 
 /* ===== UI LOGIC ===== */
@@ -1026,7 +1038,12 @@ bindPartyAutocomplete("b-sn", "sn-autocomplete", "consignee");
 },
 show:function(id){
 document.querySelectorAll(".content-section").forEach(function(s){s.classList.remove("active")});
-document.getElementById(id).classList.add("active");
+var targetEl = document.getElementById(id);
+if(targetEl) targetEl.classList.add("active");
+document.querySelectorAll(".nav-item").forEach(function(n){
+    if(n.getAttribute("data-target") === id) n.classList.add("active");
+    else n.classList.remove("active");
+});
 var t={"dashboard-view":"Dashboard","billing-view":"GST Billing","invoices-view":"Invoice History","parties-view":"Parties","products-view":"Products","reports-view":"Reports","settings-view":"Settings"};
 document.getElementById("page-title").innerText=t[id]||"Dashboard";
 if(id==="dashboard-view")DM.render();
@@ -1257,9 +1274,13 @@ lines.push(String(i+1).padEnd(4)+(it.description||"").padEnd(30)+(it.hsn||"").pa
 lines.push("".padEnd(69,"-"));
 
 lines.push("Taxable Value:".padEnd(55)+U.fm(inv.taxableAmount).padEnd(12));
-lines.push(("CGST @ "+CR+"%:").padEnd(55)+U.fm(inv.cgstAmount||0).padEnd(12));
-lines.push(("SGST @ "+SR+"%:").padEnd(55)+U.fm(inv.sgstAmount||0).padEnd(12));
-lines.push(("IGST @ "+IR+"%:").padEnd(55)+U.fm(inv.igstAmount||0).padEnd(12));
+var isInterTxt = Boolean(inv.isInterState || (inv.stateCode && String(inv.stateCode).trim() !== "37") || (inv.receiver && inv.receiver.stateCode && String(inv.receiver.stateCode).trim() !== "37") || ((inv.igstAmount || 0) > 0 && !(inv.cgstAmount || 0)));
+if (!isInterTxt) {
+    lines.push(("CGST @ "+CR+"%:").padEnd(55)+U.fm(inv.cgstAmount||0).padEnd(12));
+    lines.push(("SGST @ "+SR+"%:").padEnd(55)+U.fm(inv.sgstAmount||0).padEnd(12));
+} else {
+    lines.push(("IGST @ "+IR+"%:").padEnd(55)+U.fm(inv.igstAmount||0).padEnd(12));
+}
 var pRo = inv.roundOff !== undefined ? inv.roundOff : (inv.totalAmount - (inv.rawGrandTotal || inv.totalAmount));
 var pRoSign = pRo >= 0 ? "+" : "-";
 lines.push(("Round Off: (" + pRoSign + ")").padEnd(55)+U.fm(Math.abs(pRo)).padEnd(12));
@@ -1312,14 +1333,21 @@ generatePrintHTML:function(inv){
         });
     }
 
-    var taxRows="";
-    var rawGT = (inv.taxableAmount||0) + (inv.cgstAmount||0) + (inv.sgstAmount||0) + (inv.igstAmount||0);
+    var isInterPrint = Boolean(inv.isInterState || (inv.stateCode && String(inv.stateCode).trim() !== "37") || (inv.receiver && inv.receiver.stateCode && String(inv.receiver.stateCode).trim() !== "37") || ((inv.igstAmount || 0) > 0 && !(inv.cgstAmount || 0)));
+    var cgstAmt = !isInterPrint ? (inv.cgstAmount || 0) : 0;
+    var sgstAmt = !isInterPrint ? (inv.sgstAmount || 0) : 0;
+    var igstAmt = isInterPrint ? (inv.igstAmount || 0) : 0;
+    var rawGT = (inv.taxableAmount || 0) + cgstAmt + sgstAmt + igstAmt;
     var roVal = inv.roundOff !== undefined ? inv.roundOff : (Math.round(rawGT) - rawGT);
     var roStr = (roVal >= 0 ? '+ \u20B9' : '- \u20B9') + Math.abs(roVal).toFixed(2);
+    var taxRows="";
     taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>Taxable Amount</span><span style="color:#000;">'+U.fm(inv.taxableAmount)+'</span></div>';
-    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>CGST ('+CR+'%)</span><span style="color:#000;">'+U.fm(inv.cgstAmount||0)+'</span></div>';
-    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>SGST ('+SR+'%)</span><span style="color:#000;">'+U.fm(inv.sgstAmount||0)+'</span></div>';
-    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>IGST ('+IR+'%)</span><span style="color:#000;">'+U.fm(inv.igstAmount||0)+'</span></div>';
+    if (!isInterPrint) {
+        taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>CGST ('+CR+'%)</span><span style="color:#000;">'+U.fm(cgstAmt)+'</span></div>';
+        taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>SGST ('+SR+'%)</span><span style="color:#000;">'+U.fm(sgstAmt)+'</span></div>';
+    } else {
+        taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>IGST ('+IR+'%)</span><span style="color:#000;">'+U.fm(igstAmt)+'</span></div>';
+    }
     taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>Round Off</span><span style="color:#000;">'+roStr+'</span></div>';
 
     function getSt(c){
@@ -1495,6 +1523,23 @@ generatePrintHTML:function(inv){
     '</div>';
 },
 
+    openDirectWhatsapp: function(inv, explicitPhone) {
+        if (!inv) return;
+        var phone = explicitPhone || (inv.consignee && inv.consignee.phone) || (inv.receiver && inv.receiver.phone) || inv.customerPhone || "";
+        var cleanPhone = phone.replace(/\D/g, '');
+        if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+        if (!cleanPhone) {
+            cleanPhone = prompt("Enter customer WhatsApp number (e.g. 9876543210):");
+            if (!cleanPhone) return;
+            cleanPhone = cleanPhone.replace(/\D/g, '');
+            if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+        }
+        var text = SM.generateText(inv);
+        var waUrl = 'https://api.whatsapp.com/send?phone=' + encodeURIComponent(cleanPhone) + '&text=' + encodeURIComponent(text);
+        window.open(waUrl, '_blank');
+        U.toast("Opening WhatsApp Web / App...", "info");
+    },
+
     autoSendWhatsapp: function(inv, explicitPhone) {
         if (!inv) return;
         var phone = explicitPhone || (inv.consignee && inv.consignee.phone) || (inv.receiver && inv.receiver.phone) || inv.customerPhone || "";
@@ -1531,9 +1576,11 @@ generatePrintHTML:function(inv){
             fd.append('caption', 'Dear Customer, thank you for your purchase from Anudeep Khadi Bandar! Please find your Invoice #' + U.pi(inv.invoiceNo) + ' attached.');
 
             try {
-                var waApi = (API_URL && (API_URL.includes("localhost") || API_URL.startsWith("/api"))) 
+                var waApi = (API_URL && !API_URL.includes("script.google.com")) 
                     ? (API_URL + '/whatsapp/sendPdf') 
-                    : 'http://localhost:3000/api/whatsapp/sendPdf';
+                    : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io") && !location.origin.includes("vercel.app")) 
+                        ? (location.origin + '/api/whatsapp/sendPdf') 
+                        : 'http://localhost:3000/api/whatsapp/sendPdf');
 
                 var res = await originalFetch(waApi, { method: 'POST', body: fd });
                 var data = await res.json();
@@ -1544,8 +1591,7 @@ generatePrintHTML:function(inv){
                     U.toast("WhatsApp note: " + (data && data.error ? data.error : "Failed to deliver"), "warning");
                 }
             } catch(e) {
-                console.error("Auto WhatsApp error:", e);
-                U.toast("WhatsApp send failed: " + e.message, "error");
+                console.warn("Auto WhatsApp bot unavailable:", e.message);
             }
         }).catch(function(err){
             console.error("PDF generation error:", err);
@@ -1625,9 +1671,11 @@ generatePrintHTML:function(inv){
             fd.append('caption', 'Dear Customer, thank you for your purchase from Anudeep Khadi Bandar! Please find your Invoice #' + U.pi(inv.invoiceNo) + ' attached.');
 
             try {
-                var waApi = (API_URL && (API_URL.includes("localhost") || API_URL.startsWith("/api"))) 
+                var waApi = (API_URL && !API_URL.includes("script.google.com")) 
                     ? (API_URL + '/whatsapp/sendPdf') 
-                    : 'http://localhost:3000/api/whatsapp/sendPdf';
+                    : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io") && !location.origin.includes("vercel.app")) 
+                        ? (location.origin + '/api/whatsapp/sendPdf') 
+                        : 'http://localhost:3000/api/whatsapp/sendPdf');
 
                 var res = await originalFetch(waApi, { method: 'POST', body: fd });
                 var data = await res.json();
@@ -1636,12 +1684,15 @@ generatePrintHTML:function(inv){
                     U.toast("✅ WhatsApp invoice PDF sent to " + cleanPhone, "success");
                     setTimeout(function(){ UI.cl("share-modal"); }, 1200);
                 } else {
-                    U.toast("WhatsApp failed: " + ((data && data.error) || "Could not deliver"), "error");
+                    var errMsg = (data && data.error) || "Could not deliver";
+                    U.toast("WhatsApp bot note: " + errMsg + ". Opening direct WhatsApp...", "info");
+                    SM.openDirectWhatsapp(inv, cleanPhone);
                 }
             } catch(e) {
                 if(btn) { btn.classList.remove("loading"); btn.disabled=false; }
-                console.error(e);
-                U.toast("Connection failed. Is local Node server running on port 3000?", "error");
+                console.warn("Automated WhatsApp bot unavailable:", e.message);
+                U.toast("WhatsApp bot offline. Opening direct WhatsApp chat...", "info");
+                SM.openDirectWhatsapp(inv, cleanPhone);
             }
         }).catch(function(err){
             if(btn) { btn.classList.remove("loading"); btn.disabled=false; }
@@ -2041,9 +2092,13 @@ BM.items.forEach(function(it){taxable+=it.amount});
 var sc=document.getElementById("b-sc").value.trim()||"37";
 var isInter = (sc !== "37");
 
-var cgst = parseFloat((taxable * CR / 100).toFixed(2));
-var sgst = parseFloat((taxable * SR / 100).toFixed(2));
-var igst = parseFloat((taxable * IR / 100).toFixed(2));
+var cgst = 0, sgst = 0, igst = 0;
+if (!isInter) {
+    cgst = parseFloat((taxable * CR / 100).toFixed(2));
+    sgst = parseFloat((taxable * SR / 100).toFixed(2));
+} else {
+    igst = parseFloat((taxable * IR / 100).toFixed(2));
+}
 
 // rawTotal = Grand Total with GST (may have paise)
 var rawTotal = parseFloat((taxable + cgst + sgst + igst).toFixed(2));
@@ -2060,9 +2115,12 @@ var h = '';
 h += '<div class="sum-row"><span style="font-weight:600">Taxable Value</span><span>'+U.fm(taxable)+'</span></div>';
 // GST breakdown box
 h += '<div class="tax-box">';
-h += '<div class="sum-row"><span>CGST @ '+CR+'%</span><span>'+U.fm(cgst)+'</span></div>';
-h += '<div class="sum-row"><span>SGST @ '+SR+'%</span><span>'+U.fm(sgst)+'</span></div>';
-h += '<div class="sum-row"><span>IGST @ '+IR+'%</span><span>'+U.fm(igst)+'</span></div>';
+if (!isInter) {
+    h += '<div class="sum-row"><span>CGST @ '+CR+'%</span><span>'+U.fm(cgst)+'</span></div>';
+    h += '<div class="sum-row"><span>SGST @ '+SR+'%</span><span>'+U.fm(sgst)+'</span></div>';
+} else {
+    h += '<div class="sum-row"><span>IGST @ '+IR+'%</span><span>'+U.fm(igst)+'</span></div>';
+}
 h += '</div>';
 // Round Off
 h += '<div class="sum-row" style="font-size:.82rem; color:var(--tl);"><span>Round Off</span><span>'+formattedRoundOff+'</span></div>';
@@ -2753,7 +2811,7 @@ if (!idStr) {
 
 // 1. Optimistically delete from state & localStorage immediately (< 1ms)
 IM._all = (IM._all || []).filter(function(inv){
-    return String(inv.id) !== idStr && String(inv._id) !== idStr;
+    return String(inv.id) !== idStr && String(inv._id) !== idStr && String(inv.invoiceNo) !== idStr;
 });
 D.s('invoices', IM._all);
 
@@ -2871,9 +2929,11 @@ if(!invs.length){el.innerHTML='<div class="empty-state"><i class="ph ph-chart-ba
 var totalAmount=0,totalTax=0,totalCGST=0,totalSGST=0,totalIGST=0;
 var itemMap={};
 invs.forEach(function(inv){
-totalAmount+=inv.totalAmount;
-totalTax+=inv.cgstAmount+inv.sgstAmount+inv.igstAmount;
-totalCGST+=inv.cgstAmount;totalSGST+=inv.sgstAmount;totalIGST+=inv.igstAmount;
+totalAmount += (inv.totalAmount || 0);
+totalTax += (inv.cgstAmount || 0) + (inv.sgstAmount || 0) + (inv.igstAmount || 0);
+totalCGST += (inv.cgstAmount || 0);
+totalSGST += (inv.sgstAmount || 0);
+totalIGST += (inv.igstAmount || 0);
 
 if(inv.items){
     inv.items.forEach(function(it){
@@ -3036,17 +3096,18 @@ try{
 UI.init();
 
 
-// Diagnostic guard: ensure login screen is visible when not authenticated
+// Diagnostic guard: ensure proper authentication display
 window.addEventListener('load', function(){
     try{
-        var auth = sessionStorage.getItem('akb_auth');
-        console.log('auth status=', auth);
-        if(auth !== '1'){
-            var ls = document.getElementById('login-screen');
-            var app = document.getElementById('app-container');
+        var auth = sessionStorage.getItem('akb_auth') === '1' || (localStorage.getItem('akb_auth_persistent') === '1' && (localStorage.getItem('akb_saved_user')||'').toLowerCase() === 'sridhar');
+        var ls = document.getElementById('login-screen');
+        var app = document.getElementById('app-container');
+        if(!auth){
             if(ls) ls.style.display = 'flex';
             if(app) app.classList.remove('active');
-            console.log('Login screen forced visible for debugging.');
+        } else {
+            if(ls) ls.style.display = 'none';
+            if(app) app.classList.add('active');
         }
     }catch(e){console.error('Login guard error', e)}
 });
@@ -3071,7 +3132,13 @@ async function fetchWhatsappStatus() {
     txt.innerHTML = "Checking status...";
     img.style.display = "none";
     try {
-        var res = await fetch("http://localhost:3000/api/whatsapp/status", { method: 'GET' });
+        var waStatusUrl = (API_URL && !API_URL.includes("script.google.com")) 
+            ? (API_URL + '/whatsapp/status') 
+            : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io") && !location.origin.includes("vercel.app")) 
+                ? (location.origin + '/api/whatsapp/status') 
+                : 'http://localhost:3000/api/whatsapp/status');
+
+        var res = await originalFetch(waStatusUrl, { method: 'GET' });
         var data = await res.json();
         if (data.connected) {
             txt.innerHTML = "<span style='color:green;'>Connected & Ready to Send!</span>";
@@ -3083,7 +3150,7 @@ async function fetchWhatsappStatus() {
             txt.innerHTML = "Starting WhatsApp service... Please refresh in a few seconds.";
         }
     } catch(e) {
-        txt.innerHTML = "Error: Make sure the local Node.js server (server.js) is running on port 3000.";
+        txt.innerHTML = "Note: WhatsApp automated bot is offline. You can still use the <strong>'Direct WhatsApp Chat'</strong> button on any invoice to send via WhatsApp Web/App!";
     }
 }
 function openWhatsappModal() {

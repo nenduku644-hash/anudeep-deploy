@@ -479,7 +479,7 @@ app.put('/api/invoices/:id', async (req, res) => {
     delete body._id;
     let updated = null;
     if (isDbConnected) {
-      updated = await Invoice.findOneAndUpdate(buildInvoiceQuery(idParam), body, { new: true }).lean();
+      updated = await Invoice.findOneAndUpdate(buildInvoiceQuery(idParam), body, { new: true, upsert: true }).lean();
     }
     // Fallback file update
     let list = readJsonFile('invoices', []);
