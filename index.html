@@ -95,7 +95,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 .inv-items-table th,.inv-items-table td{border:1px solid #000;padding:.45rem .5rem;text-align:center;vertical-align:middle}
 .inv-items-table th{background:#f0f0f0;font-weight:700;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px}
 .inv-items-table .tl{text-align:left}.inv-items-table .tr{text-align:right}
-.add-item-row{display:grid;grid-template-columns:2.2fr .65fr .45fr .6fr .6fr .8fr auto;gap:.35rem;align-items:end;padding:.6rem 1.1rem;background:#fafafa;border-bottom:1px solid #000}
+.add-item-row{display:grid;grid-template-columns:85px 2fr .65fr .45fr .6fr .6fr .8fr auto;gap:.35rem;align-items:end;padding:.6rem 1.1rem;background:#fafafa;border-bottom:1px solid #000}
 .add-item-row .inv-form-field input{font-size:.8rem;padding:.4rem}
 .billing-wrap{display:grid;grid-template-columns:1fr 300px;gap:1.25rem;align-items:start}
 .inv-summary{background:rgba(255,255,255,.9);border:1px solid var(--bd);border-radius:.75rem;padding:1.25rem;position:sticky;top:0}
@@ -602,6 +602,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 </div></div></div>
 </div></div>
 <div class="add-item-row">
+<div class="inv-form-field"><label>Bale No</label><input type="text" id="b-pb" placeholder="1" value="1"></div>
 <div class="inv-form-field"><label>Product</label><select id="b-pn"><option value="">Select product...</option></select></div>
 <div class="inv-form-field"><label>HSN CODE</label><input type="text" id="b-ph" readonly style="background:#f3f4f6"></div>
 <div class="inv-form-field"><label>Qty</label><input type="number" id="b-pq" value="0" min="0"></div>
@@ -1520,7 +1521,7 @@ lines.push(String("Bale No").padEnd(8)+String("Description").padEnd(30)+String("
 lines.push("".padEnd(69,"-"));
 if(inv.items){
 inv.items.forEach(function(it,i){
-lines.push(String(i+1).padEnd(4)+(it.description||"").padEnd(30)+(it.hsn||"").padEnd(8)+String(it.qty||0).padEnd(5)+U.fm(it.rate).padEnd(10)+U.fm(it.amount).padEnd(12));
+lines.push(String(it.baleNo || (i+1)).padEnd(5)+(it.description||"").padEnd(29)+(it.hsn||"").padEnd(8)+String(it.qty||0).padEnd(5)+U.fm(it.rate).padEnd(10)+U.fm(it.amount).padEnd(12));
 });
 }
 lines.push("".padEnd(69,"-"));
@@ -1529,9 +1530,9 @@ lines.push("Taxable Value:".padEnd(55)+U.fm(inv.taxableAmount).padEnd(12));
 var cgstVal = inv.cgstAmount !== undefined ? inv.cgstAmount : parseFloat(((inv.taxableAmount || 0) * CR / 100).toFixed(2));
 var sgstVal = inv.sgstAmount !== undefined ? inv.sgstAmount : parseFloat(((inv.taxableAmount || 0) * SR / 100).toFixed(2));
 var igstVal = inv.igstAmount !== undefined ? inv.igstAmount : parseFloat(((inv.taxableAmount || 0) * IR / 100).toFixed(2));
-lines.push(("CGST @ "+CR+"%:").padEnd(55)+U.fm(cgstVal).padEnd(12));
-lines.push(("SGST @ "+SR+"%:").padEnd(55)+U.fm(sgstVal).padEnd(12));
-lines.push(("IGST @ "+IR+"%:").padEnd(55)+U.fm(igstVal).padEnd(12));
+lines.push(("ADD CGST @ "+CR+"%:").padEnd(55)+U.fm(cgstVal).padEnd(12));
+lines.push(("ADD SGST @ "+SR+"%:").padEnd(55)+U.fm(sgstVal).padEnd(12));
+lines.push(("ADD IGST @ "+IR+"%:").padEnd(55)+U.fm(igstVal).padEnd(12));
 lines.push(("TOTAL GST (10%):").padEnd(55)+U.fm(cgstVal + sgstVal + igstVal).padEnd(12));
 var pRo = inv.roundOff !== undefined ? inv.roundOff : (inv.totalAmount - (inv.rawGrandTotal || inv.totalAmount));
 var pRoSign = pRo >= 0 ? "+" : "-";
@@ -1574,7 +1575,7 @@ generatePrintHTML:function(inv){
     if(inv.items){
         inv.items.forEach(function(it,i){
             mcHtml+='<tr>'+
-                '<td style="text-align:center; border:1px solid #1a237e; padding:4px;">'+(i+1)+'</td>'+
+                '<td style="text-align:center; border:1px solid #1a237e; padding:4px;">'+U.esc(String(it.baleNo || (i+1)))+'</td>'+
                 '<td style="text-align:left; border:1px solid #1a237e; padding:4px;">'+U.esc(it.description)+'</td>'+
                 '<td style="text-align:center; border:1px solid #1a237e; padding:4px;">'+U.esc(it.hsn)+'</td>'+
                 '<td style="text-align:center; border:1px solid #1a237e; padding:4px;">'+it.qty+'</td>'+
@@ -1593,9 +1594,9 @@ generatePrintHTML:function(inv){
     var roStr = (roVal >= 0 ? '+ \u20B9' : '- \u20B9') + Math.abs(roVal).toFixed(2);
     var taxRows="";
     taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>Taxable Amount</span><span style="color:#000;">'+U.fm(inv.taxableAmount)+'</span></div>';
-    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>CGST ('+CR+'%)</span><span style="color:#000;">'+U.fm(cgstAmt)+'</span></div>';
-    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>SGST ('+SR+'%)</span><span style="color:#000;">'+U.fm(sgstAmt)+'</span></div>';
-    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>IGST ('+IR+'%)</span><span style="color:#000;">'+U.fm(igstAmt)+'</span></div>';
+    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>ADD CGST ('+CR+'%)</span><span style="color:#000;">'+U.fm(cgstAmt)+'</span></div>';
+    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>ADD SGST ('+SR+'%)</span><span style="color:#000;">'+U.fm(sgstAmt)+'</span></div>';
+    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>ADD IGST ('+IR+'%)</span><span style="color:#000;">'+U.fm(igstAmt)+'</span></div>';
     taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px; font-weight:bold;"><span>Total GST (10%)</span><span style="color:#000;">'+U.fm(cgstAmt + sgstAmt + igstAmt)+'</span></div>';
     taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>Round Off</span><span style="color:#000;">'+roStr+'</span></div>';
 
@@ -1629,7 +1630,7 @@ generatePrintHTML:function(inv){
                     '<div style="border:2px solid #1a237e; color:#1a237e !important; background:#fff; padding:6px 20px; display:inline-block; border-radius:4px; line-height:1.2; font-size:13pt; font-weight:900; letter-spacing:0.5px; -webkit-print-color-adjust:exact; print-color-adjust:exact;">TAX INVOICE<br><span style="font-size:7.5pt; font-weight:bold; color:#1a237e;">CASH / CREDIT</span></div>'+
                 '</td>'+
                 '<td style="padding:4px 10px; width:33%; text-align:right; vertical-align:middle;">'+
-                    '<div style="border:2px solid #1a237e; color:#1a237e !important; background:#fff; padding:6px 20px; display:inline-block; border-radius:4px; line-height:1.2; text-align:center; font-family:\'Times New Roman\', serif; font-size:15pt; font-weight:900; letter-spacing:3px; -webkit-print-color-adjust:exact; print-color-adjust:exact;">AKB<br><span style="font-family:Arial, sans-serif; font-size:7.5pt; font-weight:bold; letter-spacing:1px; color:#1a237e;">KHADI BANDAR</span></div>'+
+                    '<div style="color:#1a237e !important; text-align:right; font-family:\'Times New Roman\', serif; font-size:24pt; font-weight:900; letter-spacing:6px; padding-right:10px; -webkit-print-color-adjust:exact; print-color-adjust:exact;">AKB</div>'+
                 '</td>'+
             '</tr>'+
         '</table>'+
@@ -2272,6 +2273,7 @@ document.getElementById("b-sst").value="Andhra Pradesh";
 document.getElementById("b-ssc").value="37";
 BM.items=[];
 BM.editId=null;
+if(document.getElementById("b-pb")) document.getElementById("b-pb").value = "1";
 document.getElementById("btn-generate").innerHTML = '<i class="ph ph-check-circle"></i> Generate Invoice';
 BM.renderItems();
 BM.calcSummary();
@@ -2310,10 +2312,15 @@ if(rate<=0){U.toast("Rate must be greater than 0","error");return}
 
 var amount = effectiveQty * rate;
 
-BM.items.push({description:name,hsn:hsn,qty:qty,meters:meters,cms:cms,rate:rate,amount:amount});
+var baleField = document.getElementById("b-pb");
+var baleNo = baleField ? baleField.value.trim() : "";
+if (!baleNo) baleNo = String(BM.items.length + 1);
+
+BM.items.push({baleNo:baleNo,description:name,hsn:hsn,qty:qty,meters:meters,cms:cms,rate:rate,amount:amount});
 document.getElementById("b-pn").value="";document.getElementById("b-ph").value="";
 document.getElementById("b-pq").value="0";document.getElementById("b-pm").value="0";
 document.getElementById("b-pc").value="0";document.getElementById("b-pp").value="";
+if (baleField) baleField.value = String(BM.items.length + 1);
 document.getElementById("b-pn").focus();
 BM.renderItems();
 BM.calcSummary();
@@ -2325,13 +2332,29 @@ BM.renderItems();
 BM.calcSummary();
 },
 
+updateBale:function(idx, val){
+if(BM.items && BM.items[idx]){
+    BM.items[idx].baleNo = String(val).trim();
+}
+},
+
 renderItems:function(){
 var tb=document.getElementById("b-it"),em=document.getElementById("b-em");
 if(BM.items.length===0){tb.innerHTML="";em.style.display="block";return}
 em.style.display="none";
 var h="";
 BM.items.forEach(function(it,i){
-h+='<tr><td>'+(i+1)+'</td><td class="tl">'+U.esc(it.description)+'</td><td>'+U.esc(it.hsn)+'</td><td>'+it.qty+'</td><td>'+it.meters+'.'+String(it.cms).padStart(2,"0")+'</td><td class="tr">'+U.fm(it.rate)+'</td><td class="tr">'+U.fm(it.amount)+'</td><td><button class="btn-icon" onclick="BM.removeItem('+i+')" title="Remove" style="color:var(--dg)"><i class="ph ph-trash"></i></button></td></tr>';
+var bVal = (it.baleNo !== undefined && it.baleNo !== null && it.baleNo !== "") ? it.baleNo : (i+1);
+h+='<tr>'+
+    '<td><input type="text" value="'+U.esc(String(bVal))+'" onchange="BM.updateBale('+i+',this.value)" style="width:52px; text-align:center; padding:3px 2px; font-weight:700; border:1px solid var(--bd); border-radius:4px; font-size:0.85rem;" title="Click to edit Bale Number"></td>'+
+    '<td class="tl">'+U.esc(it.description)+'</td>'+
+    '<td>'+U.esc(it.hsn)+'</td>'+
+    '<td>'+it.qty+'</td>'+
+    '<td>'+(it.meters||0)+'.'+String(it.cms||0).padStart(2,"0")+'</td>'+
+    '<td class="tr">'+U.fm(it.rate)+'</td>'+
+    '<td class="tr">'+U.fm(it.amount)+'</td>'+
+    '<td><button class="btn-icon" onclick="BM.removeItem('+i+')" title="Remove" style="color:var(--dg)"><i class="ph ph-trash"></i></button></td>'+
+    '</tr>';
 });
 tb.innerHTML=h;
 },
@@ -2360,11 +2383,11 @@ var formattedRoundOff = roSign + Math.abs(roundOff).toFixed(2);
 var h = '';
 // Taxable value row
 h += '<div class="sum-row"><span style="font-weight:600">Taxable Value</span><span>'+U.fm(taxable)+'</span></div>';
-// GST breakdown box: CGST (2.5%) + SGST (2.5%) + IGST (5%) = 10% GST
+// GST breakdown box: ADD CGST (2.5%) + ADD SGST (2.5%) + ADD IGST (5%) = 10% GST
 h += '<div class="tax-box">';
-h += '<div class="sum-row"><span>CGST @ '+CR+'%</span><span>'+U.fm(cgst)+'</span></div>';
-h += '<div class="sum-row"><span>SGST @ '+SR+'%</span><span>'+U.fm(sgst)+'</span></div>';
-h += '<div class="sum-row"><span>IGST @ '+IR+'%</span><span>'+U.fm(igst)+'</span></div>';
+h += '<div class="sum-row"><span>ADD CGST @ '+CR+'%</span><span>'+U.fm(cgst)+'</span></div>';
+h += '<div class="sum-row"><span>ADD SGST @ '+SR+'%</span><span>'+U.fm(sgst)+'</span></div>';
+h += '<div class="sum-row"><span>ADD IGST @ '+IR+'%</span><span>'+U.fm(igst)+'</span></div>';
 h += '<div class="sum-row" style="border-top:1px dashed #cbd5e1; margin-top:4px; padding-top:4px; font-weight:600; color:var(--p)"><span>Total GST (10%)</span><span>'+U.fm(cgst + sgst + igst)+'</span></div>';
 h += '</div>';
 // Round Off
@@ -2435,7 +2458,19 @@ editInvoice: function(id) {
         document.getElementById("b-ssc").value = inv.consignee.stateCode || "";
     }
     
-    BM.items = inv.items ? inv.items.slice() : [];
+    BM.items = inv.items ? inv.items.map(function(it, idx) {
+        return {
+            baleNo: (it.baleNo !== undefined && it.baleNo !== null && it.baleNo !== "") ? String(it.baleNo) : String(idx + 1),
+            description: it.description || "",
+            hsn: it.hsn || "",
+            qty: it.qty || 0,
+            meters: it.meters || 0,
+            cms: it.cms || 0,
+            rate: it.rate || 0,
+            amount: it.amount || 0
+        };
+    }) : [];
+    if(document.getElementById("b-pb")) document.getElementById("b-pb").value = String(BM.items.length + 1);
     BM.renderItems();
     BM.calcSummary();
     
@@ -2591,6 +2626,7 @@ document.getElementById("b-sg").value="";document.getElementById("b-sst").value=
 document.getElementById("b-pn").value="";document.getElementById("b-ph").value="";
 document.getElementById("b-pq").value="0";document.getElementById("b-pm").value="0";
 document.getElementById("b-pc").value="0";document.getElementById("b-pp").value="";
+if(document.getElementById("b-pb")) document.getElementById("b-pb").value="1";
 BM.init();
 }
 };
