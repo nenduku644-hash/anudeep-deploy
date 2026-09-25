@@ -1405,35 +1405,37 @@ generatePrintHTML:function(inv){
                     '</table>'+
                 '</td>'+
                 '<td style="width:50%; padding:4px; vertical-align:top;">'+
+                    '<table style="width:100%; border-collapse:collapse; margin-bottom:2px;">'+
+                        '<tr>'+
+                            '<td style="width:120px; padding:2px 3px; white-space:nowrap;">Transportation Mode</td>'+
+                            '<td style="width:8px; text-align:center;">:</td>'+
+                            '<td style="color:#000; font-weight:normal; border-bottom:1px solid #a0aabf; padding-left:4px; white-space:nowrap;">' + (inv.transportMode||'') + '</td>'+
+                        '</tr>'+
+                    '</table>'+
                     '<table style="width:100%; border-collapse:collapse;">'+
                         '<tr>'+
-                            '<td style="width:135px; padding:3px 4px; white-space:nowrap;">Transportation Mode</td>'+
-                            '<td style="width:15px; text-align:center;">:</td>'+
-                            '<td colspan="4" style="color:#000; font-weight:normal; border-bottom:1px solid #a0aabf;">' + (inv.transportMode||'') + '</td>'+
+                            '<td style="width:88px; padding:2px 3px; white-space:nowrap;">L.R. / Docket No.</td>'+
+                            '<td style="width:8px; text-align:center;">:</td>'+
+                            '<td style="color:#000; font-weight:normal; border-bottom:1px solid #a0aabf; padding-left:4px; white-space:nowrap;">' + (inv.lrNo||'') + '</td>'+
+                            '<td style="width:78px; text-align:right; padding-right:2px; white-space:nowrap;">Date</td>'+
+                            '<td style="width:8px; text-align:center;">:</td>'+
+                            '<td style="width:80px; color:#000; font-weight:normal; border-bottom:1px solid #a0aabf; padding-left:4px; white-space:nowrap;">' + (inv.transportDate?U.fd(inv.transportDate):'') + '</td>'+
                         '</tr>'+
                         '<tr>'+
-                            '<td style="padding:3px 4px; white-space:nowrap;">L.R. / Docket No.</td>'+
-                            '<td style="text-align:center;">:</td>'+
-                            '<td style="color:#000; font-weight:normal; border-bottom:1px solid #a0aabf; width:35%;">' + (inv.lrNo||'') + '</td>'+
-                            '<td style="width:30px; text-align:right; padding-right:4px;">Date</td>'+
-                            '<td style="width:15px; text-align:center;">:</td>'+
-                            '<td style="color:#000; font-weight:normal; border-bottom:1px solid #a0aabf; white-space:nowrap;">' + (inv.transportDate?U.fd(inv.transportDate):'') + '</td>'+
+                            '<td style="width:88px; padding:2px 3px; white-space:nowrap;">Date of Supply</td>'+
+                            '<td style="width:8px; text-align:center;">:</td>'+
+                            '<td style="color:#000; font-weight:normal; border-bottom:1px solid #a0aabf; padding-left:4px; white-space:nowrap;">' + (inv.supplyDate?U.fd(inv.supplyDate):'') + '</td>'+
+                            '<td style="width:78px; text-align:right; padding-right:2px; white-space:nowrap;">No. of Bundles</td>'+
+                            '<td style="width:8px; text-align:center;">:</td>'+
+                            '<td style="width:80px; color:#000; font-weight:normal; border-bottom:1px solid #a0aabf; padding-left:4px; white-space:nowrap;">' + (inv.bundles||'0') + '</td>'+
                         '</tr>'+
                         '<tr>'+
-                            '<td style="padding:3px 4px; white-space:nowrap;">Date of Supply</td>'+
-                            '<td style="text-align:center;">:</td>'+
-                            '<td style="color:#000; font-weight:normal; border-bottom:1px solid #a0aabf;">' + (inv.supplyDate?U.fd(inv.supplyDate):'') + '</td>'+
-                            '<td style="text-align:right; padding-right:4px; white-space:nowrap;">No. of Bundles</td>'+
-                            '<td style="text-align:center;">:</td>'+
-                            '<td style="color:#000; font-weight:normal; border-bottom:1px solid #a0aabf;">' + (inv.bundles||'0') + '</td>'+
-                        '</tr>'+
-                        '<tr>'+
-                            '<td style="padding:3px 4px; white-space:nowrap;">Place of Supply</td>'+
-                            '<td style="text-align:center;">:</td>'+
-                            '<td style="color:#000; font-weight:normal; border-bottom:1px solid #a0aabf;">' + (inv.placeOfSupply||'') + '</td>'+
-                            '<td style="text-align:right; padding-right:4px; white-space:nowrap;">State Code</td>'+
-                            '<td style="text-align:center;">:</td>'+
-                            '<td style="color:#000; font-weight:normal; border-bottom:1px solid #a0aabf;">' + (inv.stateCode||'37') + '</td>'+
+                            '<td style="width:88px; padding:2px 3px; white-space:nowrap;">Place of Supply</td>'+
+                            '<td style="width:8px; text-align:center;">:</td>'+
+                            '<td style="color:#000; font-weight:normal; border-bottom:1px solid #a0aabf; padding-left:4px; white-space:nowrap;">' + (inv.placeOfSupply||'') + '</td>'+
+                            '<td style="width:78px; text-align:right; padding-right:2px; white-space:nowrap;">State Code</td>'+
+                            '<td style="width:8px; text-align:center;">:</td>'+
+                            '<td style="width:80px; color:#000; font-weight:normal; border-bottom:1px solid #a0aabf; padding-left:4px; white-space:nowrap;">' + (inv.stateCode||'37') + '</td>'+
                         '</tr>'+
                     '</table>'+
                 '</td>'+
