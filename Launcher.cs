@@ -1,7 +1,9 @@
 using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -10,128 +12,299 @@ namespace AnudeepKhadiBandar
 {
     static class Program
     {
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        private const int SW_RESTORE = 9;
+        private const string MUTEX_ID = "Global\\AnudeepKhadiBandar_Billing_POS_Mutex";
+
         private static Process serverProcess = null;
+        private static Process browserProcess = null;
         private static HttpListener embeddedServer = null;
         private static Thread embeddedServerThread = null;
+        private static Thread watchdogThread = null;
+        private static NotifyIcon trayIcon = null;
+        private static ContextMenu trayMenu = null;
         private static bool isRunning = true;
         private static string appDir = AppDomain.CurrentDomain.BaseDirectory;
+        private static string activeUrl = "http://localhost:3000";
 
         [STAThread]
         static void Main(string[] args)
         {
+            bool createdNew;
+            using (Mutex mutex = new Mutex(true, MUTEX_ID, out createdNew))
+            {
+                if (!createdNew)
+                {
+                    // Bring existing instance to foreground
+                    FocusExistingInstance();
+                    return;
+                }
+
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+
+                try
+                {
+                    InitializeSystemTray();
+                    EnsureBackendRunning();
+                    LaunchDedicatedBrowserWindow(activeUrl);
+                    StartWatchdog();
+
+                    Application.Run();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        "An unexpected error occurred in Anudeep Khadi Bandar:\n" + ex.Message,
+                        "Anudeep Khadi Bandar - Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error
+                    );
+                }
+                finally
+                {
+                    Cleanup();
+                }
+            }
+        }
+
+        private static void FocusExistingInstance()
+        {
             try
             {
-                string targetUrl = "http://localhost:3000";
-                bool localServerRunning = IsUrlResponding("http://localhost:3000/api/health", 800);
-
-                if (!localServerRunning)
+                Process[] procs = Process.GetProcessesByName("msedge");
+                foreach (Process p in procs)
                 {
-                    // Attempt to launch local Node backend if server.js exists
-                    string serverJsPath = Path.Combine(appDir, "server.js");
-                    string nodeExePath = FindNodeExe();
-
-                    if (!string.IsNullOrEmpty(nodeExePath) && File.Exists(serverJsPath))
+                    if (p.MainWindowHandle != IntPtr.Zero && p.MainWindowTitle.Contains("Anudeep"))
                     {
-                        try
+                        ShowWindow(p.MainWindowHandle, SW_RESTORE);
+                        SetForegroundWindow(p.MainWindowHandle);
+                        return;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void InitializeSystemTray()
+        {
+            trayMenu = new ContextMenu();
+
+            MenuItem mOpen = new MenuItem("📌 Open Anudeep Khadi Bandar", (s, e) => LaunchDedicatedBrowserWindow(activeUrl));
+            mOpen.DefaultItem = true;
+            trayMenu.MenuItems.Add(mOpen);
+
+            trayMenu.MenuItems.Add(new MenuItem("🧾 New Invoice (Quick Bill)", (s, e) => LaunchDedicatedBrowserWindow(activeUrl + "#billing")));
+            trayMenu.MenuItems.Add(new MenuItem("📜 Invoice History", (s, e) => LaunchDedicatedBrowserWindow(activeUrl + "#invoices")));
+            trayMenu.MenuItems.Add("-");
+
+            trayMenu.MenuItems.Add(new MenuItem("🔄 Refresh & Sync Cloud Data", (s, e) => {
+                if (IsUrlResponding("http://localhost:3000/api/health", 800))
+                {
+                    ShowTrayNotification("Database Online", "Local Node/MongoDB engine and Cloud GAS are synchronized.");
+                }
+                else
+                {
+                    ShowTrayNotification("Cloud Mode Active", "Connected to Google Apps Script Cloud Database.");
+                }
+            }));
+
+            trayMenu.MenuItems.Add(new MenuItem("📁 Open Invoices Backup Folder", (s, e) => {
+                string dataPath = Path.Combine(appDir, "data");
+                if (Directory.Exists(dataPath)) Process.Start("explorer.exe", dataPath);
+                else Process.Start("explorer.exe", appDir);
+            }));
+
+            trayMenu.MenuItems.Add(new MenuItem("🌐 Open in Default Browser", (s, e) => Process.Start(activeUrl)));
+            trayMenu.MenuItems.Add("-");
+
+            trayMenu.MenuItems.Add(new MenuItem("❌ Exit Application", (s, e) => {
+                Cleanup();
+                Application.Exit();
+            }));
+
+            trayIcon = new NotifyIcon();
+            trayIcon.Text = "Anudeep Khadi Bandar - GST Billing";
+
+            string iconPath = Path.Combine(appDir, "icon.ico");
+            if (File.Exists(iconPath))
+            {
+                try { trayIcon.Icon = new Icon(iconPath); }
+                catch { trayIcon.Icon = SystemIcons.Application; }
+            }
+            else
+            {
+                trayIcon.Icon = SystemIcons.Application;
+            }
+
+            trayIcon.ContextMenu = trayMenu;
+            trayIcon.Visible = true;
+            trayIcon.DoubleClick += (s, e) => LaunchDedicatedBrowserWindow(activeUrl);
+        }
+
+        private static void ShowTrayNotification(string title, string text)
+        {
+            if (trayIcon != null)
+            {
+                trayIcon.ShowBalloonTip(3000, title, text, ToolTipIcon.Info);
+            }
+        }
+
+        private static void EnsureBackendRunning()
+        {
+            bool localResponding = IsUrlResponding("http://localhost:3000/api/health", 800);
+
+            if (!localResponding)
+            {
+                string serverJs = Path.Combine(appDir, "server.js");
+                string nodeExe = FindNodeExe();
+
+                if (!string.IsNullOrEmpty(nodeExe) && File.Exists(serverJs))
+                {
+                    StartNodeProcess(nodeExe, serverJs);
+
+                    for (int i = 0; i < 7; i++)
+                    {
+                        Thread.Sleep(500);
+                        if (IsUrlResponding("http://localhost:3000/api/health", 500))
                         {
-                            ProcessStartInfo psi = new ProcessStartInfo();
-                            psi.FileName = nodeExePath;
-                            psi.Arguments = "\"" + serverJsPath + "\"";
-                            psi.WorkingDirectory = appDir;
-                            psi.UseShellExecute = false;
-                            psi.CreateNoWindow = true;
-                            psi.WindowStyle = ProcessWindowStyle.Hidden;
+                            localResponding = true;
+                            break;
+                        }
+                    }
+                }
+            }
 
-                            serverProcess = Process.Start(psi);
+            if (localResponding)
+            {
+                activeUrl = "http://localhost:3000";
+            }
+            else
+            {
+                string indexPath = Path.Combine(appDir, "index.html");
+                if (File.Exists(indexPath))
+                {
+                    int freePort = GetFreePort(3030);
+                    activeUrl = "http://localhost:" + freePort + "/";
+                    StartEmbeddedServer(freePort);
+                }
+                else
+                {
+                    activeUrl = "https://nenduku644-hash.github.io/anudeep-deploy/";
+                }
+            }
+        }
 
-                            // Wait up to 3 seconds for server to initialize
-                            for (int i = 0; i < 6; i++)
+        private static void StartNodeProcess(string nodePath, string scriptPath)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = nodePath;
+                psi.Arguments = "\"" + scriptPath + "\"";
+                psi.WorkingDirectory = appDir;
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.WindowStyle = ProcessWindowStyle.Hidden;
+
+                serverProcess = Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error starting Node: " + ex.Message);
+            }
+        }
+
+        private static void StartWatchdog()
+        {
+            watchdogThread = new Thread(() =>
+            {
+                while (isRunning)
+                {
+                    Thread.Sleep(6000);
+                    if (!isRunning) break;
+
+                    // If configured to use local port 3000, check health and auto-heal if crashed
+                    if (activeUrl.Contains(":3000"))
+                    {
+                        bool alive = IsUrlResponding("http://localhost:3000/api/health", 1200);
+                        if (!alive && isRunning)
+                        {
+                            string nodeExe = FindNodeExe();
+                            string serverJs = Path.Combine(appDir, "server.js");
+                            if (!string.IsNullOrEmpty(nodeExe) && File.Exists(serverJs))
                             {
-                                Thread.Sleep(500);
-                                if (IsUrlResponding("http://localhost:3000/api/health", 500))
-                                {
-                                    localServerRunning = true;
-                                    break;
-                                }
+                                StartNodeProcess(nodeExe, serverJs);
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine("Node start error: " + ex.Message);
-                        }
                     }
                 }
+            });
+            watchdogThread.IsBackground = true;
+            watchdogThread.Start();
+        }
 
-                // If local server is still not running, start embedded HTTP server for local index.html or fallback to cloud URL
-                if (!localServerRunning)
+        private static void LaunchDedicatedBrowserWindow(string url)
+        {
+            try
+            {
+                // If a browser process is already running, focus it
+                if (browserProcess != null && !browserProcess.HasExited)
                 {
-                    string indexPath = Path.Combine(appDir, "index.html");
-                    if (File.Exists(indexPath))
-                    {
-                        int freePort = GetFreePort(3030);
-                        targetUrl = "http://localhost:" + freePort + "/";
-                        StartEmbeddedServer(freePort);
-                    }
-                    else
-                    {
-                        // Fallback to live deployed Cloud URL
-                        targetUrl = "https://nenduku644-hash.github.io/anudeep-deploy/";
-                    }
+                    FocusExistingInstance();
+                    return;
                 }
 
-                // Launch dedicated Chromium App Window (Microsoft Edge or Google Chrome)
                 string browserPath = FindBrowserExe();
                 if (string.IsNullOrEmpty(browserPath))
                 {
-                    // Fallback to default browser if neither Edge nor Chrome found
-                    Process.Start(targetUrl);
+                    Process.Start(url);
                     return;
                 }
 
                 string profileDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "AnudeepKhadiBandar",
-                    "Profile"
+                    "POS_Profile"
                 );
 
                 try
                 {
-                    if (!Directory.Exists(profileDir))
-                    {
-                        Directory.CreateDirectory(profileDir);
-                    }
+                    if (!Directory.Exists(profileDir)) Directory.CreateDirectory(profileDir);
                 }
                 catch { }
 
-                string browserArgs = string.Format(
-                    "--app=\"{0}\" --user-data-dir=\"{1}\" --window-size=1366,768 --start-maximized --disable-features=Translate --disable-extensions --no-first-run",
-                    targetUrl,
+                string args = string.Format(
+                    "--app=\"{0}\" --user-data-dir=\"{1}\" --window-size=1400,850 --start-maximized " +
+                    "--disable-features=Translate,OptimizationHints --disable-extensions " +
+                    "--enable-gpu-rasterization --disable-background-timer-throttling --no-first-run",
+                    url,
                     profileDir
                 );
 
-                ProcessStartInfo browserPsi = new ProcessStartInfo();
-                browserPsi.FileName = browserPath;
-                browserPsi.Arguments = browserArgs;
-                browserPsi.UseShellExecute = false;
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = browserPath;
+                psi.Arguments = args;
+                psi.UseShellExecute = false;
 
-                Process browserProc = Process.Start(browserPsi);
-                if (browserProc != null)
+                browserProcess = Process.Start(psi);
+                if (browserProcess != null)
                 {
-                    browserProc.WaitForExit();
+                    new Thread(() =>
+                    {
+                        browserProcess.WaitForExit();
+                        // When main browser window is closed, keep tray alive for fast re-opening
+                    }).Start();
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show(
-                    "An unexpected error occurred launching Anudeep Khadi Bandar:\n" + ex.Message,
-                    "Anudeep Khadi Bandar",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error
-                );
-            }
-            finally
-            {
-                Cleanup();
+                MessageBox.Show("Failed to open application window:\n" + ex.Message, "Anudeep Khadi Bandar");
             }
         }
 
@@ -169,7 +342,6 @@ namespace AnudeepKhadiBandar
                 if (File.Exists(p)) return p;
             }
 
-            // Check PATH environment variable
             string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
             string[] paths = pathEnv.Split(';');
             foreach (string dir in paths)
@@ -285,7 +457,6 @@ namespace AnudeepKhadiBandar
                 }
                 else
                 {
-                    // Fallback to index.html for SPA routing
                     string indexFile = Path.Combine(appDir, "index.html");
                     if (File.Exists(indexFile))
                     {
@@ -312,6 +483,12 @@ namespace AnudeepKhadiBandar
         {
             isRunning = false;
 
+            if (trayIcon != null)
+            {
+                try { trayIcon.Visible = false; trayIcon.Dispose(); } catch { }
+                trayIcon = null;
+            }
+
             if (embeddedServer != null)
             {
                 try { embeddedServer.Stop(); embeddedServer.Close(); } catch { }
@@ -320,12 +497,14 @@ namespace AnudeepKhadiBandar
 
             if (serverProcess != null && !serverProcess.HasExited)
             {
-                try
-                {
-                    serverProcess.Kill();
-                }
-                catch { }
+                try { serverProcess.Kill(); } catch { }
                 serverProcess = null;
+            }
+
+            if (browserProcess != null && !browserProcess.HasExited)
+            {
+                try { browserProcess.Kill(); } catch { }
+                browserProcess = null;
             }
         }
     }
