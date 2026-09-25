@@ -1,0 +1,10 @@
+{
+  "name": "anudeep-khadi-bandar-billing",
+  "version": "1.3.1",
+  "build": 101,
+  "commit": "3ae6d4ad79c109a69e48653f7f19b688e2a2b7d7",
+  "releaseDate": "2026-09-25",
+  "repo": "nenduku644-hash/anudeep-deploy",
+  "branch": "main",
+  "description": "Auto-Updating POS & GST Billing System for Anudeep Khadi Bandar"
+}

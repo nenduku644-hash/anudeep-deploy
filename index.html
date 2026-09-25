@@ -540,6 +540,9 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
   <button id="btn-sidebar-toggle" class="mobile-toggle"><i class="ph ph-list"></i></button>
   <h2 id="page-title">Dashboard</h2>
   <div style="display:flex;align-items:center;gap:.75rem">
+    <div id="cloud-update-badge" style="font-size:.78rem;font-weight:600;padding:.3rem .65rem;border-radius:2rem;background:#f0fdf4;border:1px solid #86efac;display:none;align-items:center;gap:.35rem;color:#166534;cursor:pointer" onclick="UI.show('settings-view')" title="Cloud Auto-Updater Active - Click to view">
+      <i class="ph ph-sparkle" style="color:#16a34a"></i> <span id="cloud-update-text">v1.3.1</span>
+    </div>
     <div id="db-sync-badge" style="font-size:.78rem;font-weight:600;padding:.3rem .65rem;border-radius:2rem;background:#f3f4f6;border:1px solid #e5e7eb;display:inline-flex;align-items:center;gap:.35rem;color:#4b5563;cursor:pointer" onclick="App.load()" title="Click to refresh data">
       <i class="ph ph-lightning" style="color:#10b981"></i> <span>Connecting...</span>
     </div>
@@ -758,6 +761,30 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem;">
   <button class="btn btn-secondary" onclick="STM.testDbLatency()"><i class="ph ph-gauge"></i> Test Latency</button>
   <button class="btn btn-primary" onclick="STM.saveDbConfig()"><i class="ph ph-floppy-disk"></i> Save Mode & Reload</button>
+</div>
+</div>
+</div>
+
+<div class="settings-card">
+<div class="settings-card-head"><i class="ph ph-sparkle"></i> Cloud Auto-Update & GitHub Sync</div>
+<div class="settings-card-body">
+<div class="form-group">
+<label>Application Version</label>
+<div id="updater-ver-display" style="font-size:.85rem;padding:.5rem;border-radius:6px;background:#f9fafb;border:1px solid var(--bd);margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center;">
+  <span><strong>Version:</strong> <span id="cur-app-ver">1.3.1</span></span>
+  <span style="background:#ecfdf5;color:#065f46;border:1px solid #10b981;font-size:.75rem;padding:2px 8px;border-radius:12px;font-weight:700;">GitHub Live</span>
+</div>
+</div>
+<div class="form-group">
+<label>Auto-Update Status</label>
+<div id="updater-status-text" style="font-size:.85rem;padding:.5rem;border-radius:6px;background:#fff;border:1px solid var(--bd);margin-bottom:.5rem;">
+  <span style="color:#10b981;font-weight:600">🟢 Cloud Auto-Sync Active (Checks GitHub every 5m)</span>
+</div>
+<div class="settings-hint">Whenever you push changes to GitHub, this app automatically downloads and installs them without needing a new .exe file!</div>
+</div>
+<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem;">
+  <button class="btn btn-secondary" id="btn-check-updates" onclick="UpdaterUI.checkForUpdates(true)"><i class="ph ph-arrows-clockwise"></i> Check for Cloud Updates</button>
+  <button class="btn btn-primary" id="btn-apply-update" onclick="UpdaterUI.applyUpdate()" style="display:none;background:#10b981;border-color:#10b981;"><i class="ph ph-download-simple"></i> Install Latest Cloud Version</button>
 </div>
 </div>
 </div>
@@ -3432,6 +3459,11 @@ var RTM = {
                     waQr.style.display = "block";
                 }
             }
+        } else if (type === 'app_updated') {
+            RTM.playChime();
+            if (typeof UpdaterUI !== 'undefined' && UpdaterUI.showNotification) {
+                UpdaterUI.showNotification(data);
+            }
         }
     },
 
@@ -3472,12 +3504,163 @@ var RTM = {
     }
 };
 
+/* ===== CLOUD AUTO-UPDATER UI ENGINE ===== */
+var UpdaterUI = {
+    currentVersion: '1.3.1',
+    build: 101,
+    hasUpdate: false,
+    latestInfo: null,
+
+    init: async function() {
+        try {
+            var updUrl = (API_URL && !API_URL.includes("script.google.com")) 
+                ? (API_URL + '/update/status') 
+                : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io")) 
+                    ? (location.origin + '/api/update/status') 
+                    : 'http://localhost:3000/api/update/status');
+
+            var res = await fetch(updUrl);
+            if (res.ok) {
+                var data = await res.json();
+                if (data.currentVersion) {
+                    UpdaterUI.currentVersion = data.currentVersion.version || '1.3.1';
+                    UpdaterUI.build = data.currentVersion.build || 101;
+                    UpdaterUI.updateHeaderBadge();
+                    var curVerEl = document.getElementById('cur-app-ver');
+                    if (curVerEl) curVerEl.textContent = UpdaterUI.currentVersion;
+                }
+            }
+        } catch(e) {}
+    },
+
+    updateHeaderBadge: function() {
+        var badge = document.getElementById('cloud-update-badge');
+        var text = document.getElementById('cloud-update-text');
+        if (badge && text) {
+            badge.style.display = 'inline-flex';
+            text.textContent = 'v' + UpdaterUI.currentVersion;
+        }
+    },
+
+    checkForUpdates: async function(showToast) {
+        var btn = document.getElementById('btn-check-updates');
+        var statusEl = document.getElementById('updater-status-text');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ph ph-spinner" style="animation:spin .8s linear infinite"></i> Checking GitHub...'; }
+        if (statusEl) statusEl.innerHTML = '<span style="color:#f59e0b">Connecting to GitHub...</span>';
+
+        try {
+            var checkUrl = (API_URL && !API_URL.includes("script.google.com")) 
+                ? (API_URL + '/update/check') 
+                : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io")) 
+                    ? (location.origin + '/api/update/check') 
+                    : 'http://localhost:3000/api/update/check');
+
+            var res = await fetch(checkUrl, { method: 'POST' });
+            var data = await res.json();
+            if (data.hasUpdate) {
+                UpdaterUI.hasUpdate = true;
+                UpdaterUI.latestInfo = data.latest;
+                if (statusEl) {
+                    statusEl.innerHTML = '<span style="color:#ef4444;font-weight:700">🚀 New update available on GitHub (Build ' + (data.latest.build || '') + ')</span>';
+                }
+                var applyBtn = document.getElementById('btn-apply-update');
+                if (applyBtn) applyBtn.style.display = 'inline-block';
+                if (showToast) U.toast("New update found on GitHub! Ready to install.", "info");
+            } else {
+                UpdaterUI.hasUpdate = false;
+                if (statusEl) {
+                    statusEl.innerHTML = '<span style="color:#10b981;font-weight:700">✅ You are on the latest version (' + ((data.current && data.current.version) || UpdaterUI.currentVersion) + ')</span>';
+                }
+                var applyBtn = document.getElementById('btn-apply-update');
+                if (applyBtn) applyBtn.style.display = 'none';
+                if (showToast) U.toast("App is already up to date with GitHub!", "success");
+            }
+        } catch(err) {
+            if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444">Error checking updates: ' + err.message + '</span>';
+            if (showToast) U.toast("Could not connect to update server", "error");
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ph ph-arrows-clockwise"></i> Check for Cloud Updates'; }
+        }
+    },
+
+    applyUpdate: async function() {
+        var btn = document.getElementById('btn-apply-update');
+        var statusEl = document.getElementById('updater-status-text');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ph ph-spinner" style="animation:spin .8s linear infinite"></i> Downloading files...'; }
+        if (statusEl) statusEl.innerHTML = '<span style="color:#f59e0b">Downloading latest version from GitHub...</span>';
+
+        try {
+            var applyUrl = (API_URL && !API_URL.includes("script.google.com")) 
+                ? (API_URL + '/update/apply') 
+                : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io")) 
+                    ? (location.origin + '/api/update/apply') 
+                    : 'http://localhost:3000/api/update/apply');
+
+            var res = await fetch(applyUrl, { method: 'POST' });
+            var data = await res.json();
+            if (data.success) {
+                if (statusEl) statusEl.innerHTML = '<span style="color:#10b981;font-weight:700">✨ Update installed successfully!</span>';
+                UpdaterUI.showNotification(data);
+            } else {
+                if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444">Update failed: ' + (data.error || 'Unknown error') + '</span>';
+            }
+        } catch(err) {
+            if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444">Failed to download update: ' + err.message + '</span>';
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ph ph-download-simple"></i> Install Latest Cloud Version'; }
+        }
+    },
+
+    showNotification: function(data) {
+        var existing = document.getElementById('update-notification-banner');
+        if (existing) existing.remove();
+
+        var banner = document.createElement('div');
+        banner.id = 'update-notification-banner';
+        banner.style.cssText = 'position:fixed; bottom:24px; right:24px; z-index:999999; background:linear-gradient(135deg, #1e293b, #0f172a); color:#fff; border:1.5px solid #10b981; border-radius:12px; padding:16px 20px; box-shadow:0 12px 35px rgba(0,0,0,0.4); display:flex; align-items:center; gap:16px; animation:slideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); max-width:420px;';
+
+        var vStr = (data && data.version && (data.version.version || data.version)) ? ('v' + (data.version.version || data.version)) : 'v' + UpdaterUI.currentVersion;
+        var secondsLeft = 4;
+
+        banner.innerHTML = `
+            <div style="font-size:28px; line-height:1;">🚀</div>
+            <div style="flex:1;">
+                <div style="font-weight:800; font-size:14px; color:#10b981; display:flex; align-items:center; gap:6px;">
+                    <span>Update Installed!</span>
+                    <span style="font-size:11px; background:#10b981; color:#fff; padding:1px 6px; border-radius:10px;">${vStr}</span>
+                </div>
+                <div style="font-size:12px; color:#cbd5e1; margin-top:4px; line-height:1.35;">
+                    Latest changes from GitHub were installed automatically. Refreshing in <strong id="upd-timer" style="color:#38bdf8">${secondsLeft}</strong>s...
+                </div>
+            </div>
+            <button onclick="location.reload()" style="background:#10b981; color:#fff; border:none; border-radius:8px; padding:8px 14px; font-size:12px; font-weight:700; cursor:pointer; box-shadow:0 2px 8px rgba(16,185,129,0.3); white-space:nowrap;">
+                Reload Now
+            </button>
+        `;
+        document.body.appendChild(banner);
+
+        var countdownInterval = setInterval(function() {
+            secondsLeft--;
+            var timerEl = document.getElementById('upd-timer');
+            if (timerEl) timerEl.textContent = secondsLeft;
+            if (secondsLeft <= 0) {
+                clearInterval(countdownInterval);
+                location.reload();
+            }
+        }, 1000);
+    }
+};
+
 /* ===== APP START ===== */
 var App={
 load: async function(){
     // Initialize Real-Time Engine (SSE + Cross-Tab Channel)
     if (typeof RTM !== 'undefined' && RTM.init) {
         RTM.init();
+    }
+    // Initialize Cloud Auto-Updater Status
+    if (typeof UpdaterUI !== 'undefined' && UpdaterUI.init) {
+        UpdaterUI.init();
     }
     // PHASE 1: ZERO-WAIT INSTANT LOCAL RENDER (< 20ms)
     // Instantly populate UI from local cache so user never waits for network

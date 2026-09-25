@@ -353,6 +353,216 @@ setInterval(() => {
   broadcastRealtime('ping', { time: Date.now(), clients: sseClients.size });
 }, 15000);
 
+// ==========================================
+// 🚀 GITHUB CLOUD AUTO-UPDATER ENGINE
+// ==========================================
+const GITHUB_REPO = 'nenduku644-hash/anudeep-deploy';
+const GITHUB_BRANCH = 'main';
+const RAW_BASE_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}`;
+const VERSION_PATH = path.join(__dirname, 'version.json');
+
+function getLocalVersion() {
+  try {
+    if (fs.existsSync(VERSION_PATH)) {
+      return JSON.parse(fs.readFileSync(VERSION_PATH, 'utf8'));
+    }
+  } catch (e) {
+    console.warn('[Auto-Updater] Could not read version.json:', e.message);
+  }
+  return { version: '1.3.1', build: 101, commit: 'latest', releaseDate: '2026-09-25' };
+}
+
+let lastUpdateCheck = {
+  time: 0,
+  hasUpdate: false,
+  latestVersion: null,
+  error: null
+};
+
+async function checkRemoteUpdates() {
+  try {
+    const localVer = getLocalVersion();
+    let remoteVer = null;
+    let commitMessage = '';
+    let latestSha = '';
+
+    // 1. Try fetching remote version.json
+    try {
+      const verUrl = `${RAW_BASE_URL}/version.json?_nocache=${Date.now()}`;
+      const res = await fetch(verUrl, { headers: { 'Cache-Control': 'no-cache' } });
+      if (res.ok) {
+        remoteVer = await res.json();
+      }
+    } catch (_) {}
+
+    // 2. Query GitHub Commits API for latest commit SHA and message
+    try {
+      const commitRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/commits/${GITHUB_BRANCH}`, {
+        headers: { 'User-Agent': 'AKB-AutoUpdater', 'Accept': 'application/vnd.github.v3+json' }
+      });
+      if (commitRes.ok) {
+        const cData = await commitRes.json();
+        latestSha = cData.sha || '';
+        commitMessage = (cData.commit && cData.commit.message) || '';
+      }
+    } catch (_) {}
+
+    if (!remoteVer && latestSha) {
+      remoteVer = {
+        version: localVer.version || '1.3.1',
+        build: (localVer.build || 101) + 1,
+        commit: latestSha,
+        description: commitMessage
+      };
+    }
+
+    // Check if remote build is newer OR if latest commit SHA differs from local commit SHA
+    const hasUpdate = (remoteVer && remoteVer.build && remoteVer.build > (localVer.build || 0)) ||
+                      (latestSha && latestSha !== localVer.commit) ||
+                      (remoteVer && remoteVer.commit && remoteVer.commit !== localVer.commit);
+
+    lastUpdateCheck = {
+      time: Date.now(),
+      hasUpdate: Boolean(hasUpdate),
+      current: localVer,
+      latest: remoteVer || localVer,
+      commitMessage: commitMessage || (remoteVer && remoteVer.description) || '',
+      error: null
+    };
+
+    return lastUpdateCheck;
+  } catch (err) {
+    console.warn('[Auto-Updater] Check failed:', err.message);
+    lastUpdateCheck = {
+      time: Date.now(),
+      hasUpdate: false,
+      current: getLocalVersion(),
+      latest: null,
+      error: err.message
+    };
+    return lastUpdateCheck;
+  }
+}
+
+async function downloadAndApplyUpdate(remoteVer) {
+  const filesToUpdate = ['index.html', 'sw.js', 'manifest.json', 'version.json'];
+  const updatedFiles = [];
+
+  for (const filename of filesToUpdate) {
+    try {
+      const fileUrl = `${RAW_BASE_URL}/${filename}?_nocache=${Date.now()}`;
+      const res = await fetch(fileUrl, { headers: { 'Cache-Control': 'no-cache' } });
+      if (res.ok) {
+        const content = await res.text();
+        if (content && content.length > 50) {
+          const destPath = path.join(__dirname, filename);
+          // Create backup of index.html before overwriting
+          if (filename === 'index.html' && fs.existsSync(destPath)) {
+            try { fs.writeFileSync(destPath + '.bak', fs.readFileSync(destPath)); } catch(_) {}
+          }
+          fs.writeFileSync(destPath, content, 'utf8');
+          updatedFiles.push(filename);
+        }
+      }
+    } catch (fErr) {
+      console.warn(`[Auto-Updater] Error updating ${filename}:`, fErr.message);
+    }
+  }
+
+  // Also check if server.js has changed
+  try {
+    const srvUrl = `${RAW_BASE_URL}/server.js?_nocache=${Date.now()}`;
+    const srvRes = await fetch(srvUrl, { headers: { 'Cache-Control': 'no-cache' } });
+    if (srvRes.ok) {
+      const srvContent = await srvRes.text();
+      if (srvContent && srvContent.length > 1000) {
+        const srvPath = path.join(__dirname, 'server.js');
+        fs.writeFileSync(srvPath + '.bak', fs.readFileSync(srvPath));
+        fs.writeFileSync(srvPath, srvContent, 'utf8');
+        updatedFiles.push('server.js');
+      }
+    }
+  } catch (sErr) {
+    console.warn('[Auto-Updater] Error updating server.js:', sErr.message);
+  }
+
+  // Save updated version info
+  try {
+    if (remoteVer) {
+      fs.writeFileSync(VERSION_PATH, JSON.stringify(remoteVer, null, 2), 'utf8');
+    }
+  } catch (_) {}
+
+  // Broadcast real-time update event to all connected browsers/devices
+  broadcastRealtime('app_updated', {
+    version: (remoteVer && remoteVer.version) || 'latest',
+    build: (remoteVer && remoteVer.build) || Date.now(),
+    updatedFiles,
+    message: 'App updated to latest cloud version from GitHub!'
+  });
+
+  return { success: true, updatedFiles, version: remoteVer };
+}
+
+// Background Auto-Update Checker Loop (Checks 15s after startup, then every 5 minutes)
+setTimeout(async () => {
+  try {
+    const check = await checkRemoteUpdates();
+    if (check.hasUpdate && check.latest) {
+      console.log(`[Auto-Updater] 🚀 New version found on GitHub (Build ${check.latest.build}). Installing automatically...`);
+      await downloadAndApplyUpdate(check.latest);
+      console.log(`[Auto-Updater] ✨ Update successfully applied to local system!`);
+    } else {
+      console.log(`[Auto-Updater] App is up to date (Build ${(check.current && check.current.build) || 101}).`);
+    }
+  } catch (e) {
+    console.warn('[Auto-Updater] Initial check error:', e.message);
+  }
+}, 15000);
+
+setInterval(async () => {
+  try {
+    const check = await checkRemoteUpdates();
+    if (check.hasUpdate && check.latest) {
+      console.log(`[Auto-Updater] 🚀 Automatic update detected! Downloading latest files...`);
+      await downloadAndApplyUpdate(check.latest);
+      console.log(`[Auto-Updater] ✨ Local files updated to latest cloud version!`);
+    }
+  } catch (e) {
+    console.warn('[Auto-Updater] Interval check error:', e.message);
+  }
+}, 5 * 60 * 1000);
+
+// API: Get update status
+app.get('/api/update/status', (req, res) => {
+  res.json({
+    status: 'ok',
+    currentVersion: getLocalVersion(),
+    lastCheck: lastUpdateCheck,
+    repo: GITHUB_REPO,
+    branch: GITHUB_BRANCH
+  });
+});
+
+// API: Force check for updates now
+app.post('/api/update/check', async (req, res) => {
+  const result = await checkRemoteUpdates();
+  res.json({ success: true, ...result });
+});
+
+// API: Force apply update now
+app.post('/api/update/apply', async (req, res) => {
+  const check = await checkRemoteUpdates();
+  if (check.hasUpdate && check.latest) {
+    const result = await downloadAndApplyUpdate(check.latest);
+    res.json(result);
+  } else {
+    const result = await downloadAndApplyUpdate(check.latest || check.current);
+    res.json(result);
+  }
+});
+
+
 // ⚡ BATCH BOOTSTRAP ENDPOINT: Loads EVERYTHING in ONE single round trip (under 10ms)
 app.get('/api/bootstrap', async (req, res) => {
   const cached = cache.get('bootstrap');
