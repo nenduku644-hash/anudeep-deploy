@@ -1274,13 +1274,13 @@ lines.push(String(i+1).padEnd(4)+(it.description||"").padEnd(30)+(it.hsn||"").pa
 lines.push("".padEnd(69,"-"));
 
 lines.push("Taxable Value:".padEnd(55)+U.fm(inv.taxableAmount).padEnd(12));
-var isInterTxt = Boolean(inv.isInterState || (inv.stateCode && String(inv.stateCode).trim() !== "37") || (inv.receiver && inv.receiver.stateCode && String(inv.receiver.stateCode).trim() !== "37") || ((inv.igstAmount || 0) > 0 && !(inv.cgstAmount || 0)));
-if (!isInterTxt) {
-    lines.push(("CGST @ "+CR+"%:").padEnd(55)+U.fm(inv.cgstAmount||0).padEnd(12));
-    lines.push(("SGST @ "+SR+"%:").padEnd(55)+U.fm(inv.sgstAmount||0).padEnd(12));
-} else {
-    lines.push(("IGST @ "+IR+"%:").padEnd(55)+U.fm(inv.igstAmount||0).padEnd(12));
-}
+var cgstVal = inv.cgstAmount !== undefined ? inv.cgstAmount : parseFloat(((inv.taxableAmount || 0) * CR / 100).toFixed(2));
+var sgstVal = inv.sgstAmount !== undefined ? inv.sgstAmount : parseFloat(((inv.taxableAmount || 0) * SR / 100).toFixed(2));
+var igstVal = inv.igstAmount !== undefined ? inv.igstAmount : parseFloat(((inv.taxableAmount || 0) * IR / 100).toFixed(2));
+lines.push(("CGST @ "+CR+"%:").padEnd(55)+U.fm(cgstVal).padEnd(12));
+lines.push(("SGST @ "+SR+"%:").padEnd(55)+U.fm(sgstVal).padEnd(12));
+lines.push(("IGST @ "+IR+"%:").padEnd(55)+U.fm(igstVal).padEnd(12));
+lines.push(("TOTAL GST (10%):").padEnd(55)+U.fm(cgstVal + sgstVal + igstVal).padEnd(12));
 var pRo = inv.roundOff !== undefined ? inv.roundOff : (inv.totalAmount - (inv.rawGrandTotal || inv.totalAmount));
 var pRoSign = pRo >= 0 ? "+" : "-";
 lines.push(("Round Off: (" + pRoSign + ")").padEnd(55)+U.fm(Math.abs(pRo)).padEnd(12));
@@ -1333,21 +1333,18 @@ generatePrintHTML:function(inv){
         });
     }
 
-    var isInterPrint = Boolean(inv.isInterState || (inv.stateCode && String(inv.stateCode).trim() !== "37") || (inv.receiver && inv.receiver.stateCode && String(inv.receiver.stateCode).trim() !== "37") || ((inv.igstAmount || 0) > 0 && !(inv.cgstAmount || 0)));
-    var cgstAmt = !isInterPrint ? (inv.cgstAmount || 0) : 0;
-    var sgstAmt = !isInterPrint ? (inv.sgstAmount || 0) : 0;
-    var igstAmt = isInterPrint ? (inv.igstAmount || 0) : 0;
+    var cgstAmt = inv.cgstAmount !== undefined ? inv.cgstAmount : parseFloat(((inv.taxableAmount || 0) * CR / 100).toFixed(2));
+    var sgstAmt = inv.sgstAmount !== undefined ? inv.sgstAmount : parseFloat(((inv.taxableAmount || 0) * SR / 100).toFixed(2));
+    var igstAmt = inv.igstAmount !== undefined ? inv.igstAmount : parseFloat(((inv.taxableAmount || 0) * IR / 100).toFixed(2));
     var rawGT = (inv.taxableAmount || 0) + cgstAmt + sgstAmt + igstAmt;
     var roVal = inv.roundOff !== undefined ? inv.roundOff : (Math.round(rawGT) - rawGT);
     var roStr = (roVal >= 0 ? '+ \u20B9' : '- \u20B9') + Math.abs(roVal).toFixed(2);
     var taxRows="";
     taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>Taxable Amount</span><span style="color:#000;">'+U.fm(inv.taxableAmount)+'</span></div>';
-    if (!isInterPrint) {
-        taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>CGST ('+CR+'%)</span><span style="color:#000;">'+U.fm(cgstAmt)+'</span></div>';
-        taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>SGST ('+SR+'%)</span><span style="color:#000;">'+U.fm(sgstAmt)+'</span></div>';
-    } else {
-        taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>IGST ('+IR+'%)</span><span style="color:#000;">'+U.fm(igstAmt)+'</span></div>';
-    }
+    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>CGST ('+CR+'%)</span><span style="color:#000;">'+U.fm(cgstAmt)+'</span></div>';
+    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>SGST ('+SR+'%)</span><span style="color:#000;">'+U.fm(sgstAmt)+'</span></div>';
+    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>IGST ('+IR+'%)</span><span style="color:#000;">'+U.fm(igstAmt)+'</span></div>';
+    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px; font-weight:bold;"><span>Total GST (10%)</span><span style="color:#000;">'+U.fm(cgstAmt + sgstAmt + igstAmt)+'</span></div>';
     taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>Round Off</span><span style="color:#000;">'+roStr+'</span></div>';
 
     function getSt(c){
@@ -2092,15 +2089,11 @@ BM.items.forEach(function(it){taxable+=it.amount});
 var sc=document.getElementById("b-sc").value.trim()||"37";
 var isInter = (sc !== "37");
 
-var cgst = 0, sgst = 0, igst = 0;
-if (!isInter) {
-    cgst = parseFloat((taxable * CR / 100).toFixed(2));
-    sgst = parseFloat((taxable * SR / 100).toFixed(2));
-} else {
-    igst = parseFloat((taxable * IR / 100).toFixed(2));
-}
+var cgst = parseFloat((taxable * CR / 100).toFixed(2));
+var sgst = parseFloat((taxable * SR / 100).toFixed(2));
+var igst = parseFloat((taxable * IR / 100).toFixed(2));
 
-// rawTotal = Grand Total with GST (may have paise)
+// rawTotal = Grand Total with 10% total GST (CGST 2.5% + SGST 2.5% + IGST 5%)
 var rawTotal = parseFloat((taxable + cgst + sgst + igst).toFixed(2));
 // roundedTotal = Net Payable (whole rupees)
 var roundedTotal = Math.round(rawTotal);
@@ -2113,14 +2106,12 @@ var formattedRoundOff = roSign + Math.abs(roundOff).toFixed(2);
 var h = '';
 // Taxable value row
 h += '<div class="sum-row"><span style="font-weight:600">Taxable Value</span><span>'+U.fm(taxable)+'</span></div>';
-// GST breakdown box
+// GST breakdown box: CGST (2.5%) + SGST (2.5%) + IGST (5%) = 10% GST
 h += '<div class="tax-box">';
-if (!isInter) {
-    h += '<div class="sum-row"><span>CGST @ '+CR+'%</span><span>'+U.fm(cgst)+'</span></div>';
-    h += '<div class="sum-row"><span>SGST @ '+SR+'%</span><span>'+U.fm(sgst)+'</span></div>';
-} else {
-    h += '<div class="sum-row"><span>IGST @ '+IR+'%</span><span>'+U.fm(igst)+'</span></div>';
-}
+h += '<div class="sum-row"><span>CGST @ '+CR+'%</span><span>'+U.fm(cgst)+'</span></div>';
+h += '<div class="sum-row"><span>SGST @ '+SR+'%</span><span>'+U.fm(sgst)+'</span></div>';
+h += '<div class="sum-row"><span>IGST @ '+IR+'%</span><span>'+U.fm(igst)+'</span></div>';
+h += '<div class="sum-row" style="border-top:1px dashed #cbd5e1; margin-top:4px; padding-top:4px; font-weight:600; color:var(--p)"><span>Total GST (10%)</span><span>'+U.fm(cgst + sgst + igst)+'</span></div>';
 h += '</div>';
 // Round Off
 h += '<div class="sum-row" style="font-size:.82rem; color:var(--tl);"><span>Round Off</span><span>'+formattedRoundOff+'</span></div>';
