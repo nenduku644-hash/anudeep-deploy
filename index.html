@@ -584,10 +584,10 @@ var API_MODE = localStorage.getItem("akb_db_mode") || (isLocalHost ? "auto" : "c
 var API_LATENCY_MS = 0;
 
 async function resolveApiUrl(forceRefresh) {
-    var storedMode = localStorage.getItem("akb_db_mode") || (isLocalHost ? "auto" : "cloud");
+    var storedMode = localStorage.getItem("akb_db_mode") || "auto";
     API_MODE = storedMode;
 
-    if (API_MODE === "cloud" || (!isLocalHost && API_MODE !== "local")) {
+    if (API_MODE === "cloud") {
         API_URL = CLOUD_GAS_URL;
         return API_URL;
     }
@@ -607,39 +607,43 @@ async function resolveApiUrl(forceRefresh) {
 
     // 2. Parallel fastest-responder candidate race
     var candidates = [];
-    if (location.origin && location.origin.startsWith("http") && !location.origin.includes("script.google.com")) {
+    if (location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io") && !location.origin.includes("vercel.app") && !location.origin.includes("script.google.com")) {
         candidates.push(location.origin + "/api");
     }
-    candidates.push("http://localhost:3000/api");
-    candidates.push("http://127.0.0.1:3000/api");
+    if (isLocalHost) {
+        candidates.push("http://localhost:3000/api");
+        candidates.push("http://127.0.0.1:3000/api");
+    }
 
     // Remove duplicates
     candidates = candidates.filter(function(v, i, a) { return a.indexOf(v) === i; });
 
-    try {
-        var fastest = await Promise.any(candidates.map(async function(cand) {
-            var t0 = performance.now();
-            var ctrl = new AbortController();
-            var timer = setTimeout(function(){ ctrl.abort(); }, 400);
-            var res = await originalFetch(cand + "/health", { signal: ctrl.signal });
-            clearTimeout(timer);
-            if (res.ok) {
-                var json = await res.json().catch(function(){ return {}; });
-                return { url: cand, latency: Math.max(1, Math.round(performance.now() - t0)), db: json.database };
-            }
-            throw new Error("unreachable");
-        }));
+    if (candidates.length > 0) {
+        try {
+            var fastest = await Promise.any(candidates.map(async function(cand) {
+                var t0 = performance.now();
+                var ctrl = new AbortController();
+                var timer = setTimeout(function(){ ctrl.abort(); }, 400);
+                var res = await originalFetch(cand + "/health", { signal: ctrl.signal });
+                clearTimeout(timer);
+                if (res.ok) {
+                    var json = await res.json().catch(function(){ return {}; });
+                    return { url: cand, latency: Math.max(1, Math.round(performance.now() - t0)), db: json.database };
+                }
+                throw new Error("unreachable");
+            }));
 
-        if (fastest) {
-            API_URL = fastest.url;
-            API_LATENCY_MS = fastest.latency;
-            sessionStorage.setItem("akb_cached_api_url", API_URL);
-            return API_URL;
-        }
-    } catch(e) {}
+            if (fastest) {
+                API_URL = fastest.url;
+                API_LATENCY_MS = fastest.latency;
+                sessionStorage.setItem("akb_cached_api_url", API_URL);
+                return API_URL;
+            }
+        } catch(e) {}
+    }
 
     if (API_MODE === "local") {
-        API_URL = "http://localhost:3000/api";
+        API_URL = isLocalHost ? "http://localhost:3000/api" : (location.origin + "/api");
         return API_URL;
     }
 
