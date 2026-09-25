@@ -2,6 +2,18 @@
 
 A high-speed, modern GST billing and tax invoice web application with automated WhatsApp invoice delivery, Telegram backup, customer autocomplete, and dual-database support (Local MongoDB & Cloud Google Apps Script).
 
+## 🖥️ Windows Desktop Application (.exe)
+
+A standalone native Windows desktop application has been built for the system:
+- **Executable**: `AKB-Billing.exe` (located in the root folder, only ~52 KB)
+- **Desktop Shortcut**: An icon shortcut named **`Anudeep Khadi Bandar - GST Billing`** is installed on your Desktop.
+- **Features**:
+  - Distraction-free native desktop window with official AKB icon and maximized workstation view.
+  - Dedicated isolated user profile keeping login credentials ("Remember password") and invoice drafts permanently saved.
+  - Smart Backend Connector: Automatically launches and connects to your local Node/MongoDB backend if available, or seamlessly connects to the Cloud Google Apps Script backend if offline.
+  - Direct printing to thermal and laser printers via Windows Print Spooler.
+  - To rebuild the executable at any time: `npm run build:exe`
+
 ---
 
 ## 🚀 Instant Deployment / Publishing

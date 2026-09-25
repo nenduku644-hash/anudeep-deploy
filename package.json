@@ -4,7 +4,9 @@
   "description": "Backend for AKB billing app with invoice history persistence",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "app": "powershell -WindowStyle Hidden -Command \"Start-Process .\\AKB-Billing.exe\"",
+    "build:exe": "powershell -ExecutionPolicy Bypass -Command \"& 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe' /target:winexe /out:AKB-Billing.exe /win32icon:icon.ico /r:System.Windows.Forms.dll,System.Drawing.dll,System.dll Launcher.cs\""
   },
   "dependencies": {
     "cors": "^2.8.6",
@@ -17,5 +19,10 @@
     "node-fetch": "^2.7.0",
     "qrcode": "^1.5.4",
     "whatsapp-web.js": "^1.34.7"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.4.5",
+    "png-to-ico": "^3.0.2"
   }
 }
