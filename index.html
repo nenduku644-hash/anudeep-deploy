@@ -1951,8 +1951,10 @@ generatePrintHTML:function(inv){
             waApiBase = location.origin + '/api';
         }
 
+        var isBotConnected = !!(_waStatusState && _waStatusState.connected);
+
         // 2. Headless background dispatch (ABSOLUTELY NO NEW TAB!)
-        if (waApiBase) {
+        if (isBotConnected && waApiBase) {
             fetch(waApiBase + '/whatsapp/sendMessage', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1960,8 +1962,12 @@ generatePrintHTML:function(inv){
             }).then(function(r){ return r.json(); }).then(function(d){
                 if (d && d.success) {
                     U.toast("📱 WhatsApp: Invoice #" + invNo + " delivered automatically to " + cleanPhone, "success");
+                } else if (d && d.error) {
+                    U.toast("⚠️ WhatsApp: " + d.error, "warning");
                 }
-            }).catch(function(){});
+            }).catch(function(err){
+                console.warn("WhatsApp background send err:", err);
+            });
 
             if (typeof html2pdf !== 'undefined') {
                 try {
@@ -1990,9 +1996,10 @@ generatePrintHTML:function(inv){
                     }).catch(function(){});
                 } catch(e) {}
             }
+        } else {
+            // Alert user that WhatsApp bot is not linked
+            U.toast("⚠️ WhatsApp Bot not linked! Click 'WhatsApp Status' in sidebar to scan QR or enter pairing code.", "warning");
         }
-
-        U.toast("📱 WhatsApp: Auto-dispatched for #" + invNo + " (" + cleanPhone + ")", "success");
     },
 
     copyWhatsAppText: function() {
@@ -2108,7 +2115,13 @@ generatePrintHTML:function(inv){
             U.toast("Invoice not found", "error");
             return;
         }
-        SM.autoSendWhatsapp(inv);
+        SM.currentInv = inv;
+        var isBotConnected = !!(_waStatusState && _waStatusState.connected);
+        if (isBotConnected) {
+            SM.autoSendWhatsapp(inv);
+        } else {
+            SM.openDirectWhatsapp(inv);
+        }
     },
 
     manualSendWhatsapp: function() {
@@ -3881,6 +3894,7 @@ window.addEventListener('load', function(){
 <script>
 var _waStatusState = null;
 var _waPollInterval = null;
+var _waActiveTab = 'qr';
 
 function getWaApiUrl() {
     var custom = localStorage.getItem("akb_wa_server_url");
@@ -3894,15 +3908,28 @@ function getWaApiUrl() {
     return 'http://localhost:3000/api';
 }
 
-function updateWhatsappSidebarDot(connected) {
+function updateWhatsappSidebarDot(connected, isPending) {
     var dot = document.getElementById("wa-nav-dot");
     if (!dot) return;
     if (connected) {
         dot.style.background = "#10b981";
-        dot.title = "WhatsApp: Logged In & Ready";
-    } else {
+        dot.style.boxShadow = "0 0 8px rgba(16,185,129,0.8)";
+        dot.title = "WhatsApp: Bot Connected & Ready";
+    } else if (isPending) {
         dot.style.background = "#f59e0b";
-        dot.title = "WhatsApp: Login Required";
+        dot.style.boxShadow = "0 0 8px rgba(245,158,11,0.8)";
+        dot.title = "WhatsApp: Scan QR or Enter Code";
+    } else {
+        dot.style.background = "#9ca3af";
+        dot.style.boxShadow = "none";
+        dot.title = "WhatsApp: Disconnected (Click to Link)";
+    }
+}
+
+function setWaTab(tab) {
+    _waActiveTab = tab;
+    if (_waStatusState) {
+        renderWhatsappModal("login", _waStatusState);
     }
 }
 
@@ -3910,190 +3937,228 @@ function renderWhatsappModal(state, data) {
     var container = document.getElementById("wa-modal-body");
     if (!container) return;
 
-    var isBotConnected = data && data.connected;
-    var isLocalLoggedIn = localStorage.getItem("akb_wa_logged_in") === "true";
-    var isConnected = isBotConnected || isLocalLoggedIn;
+    var isBotConnected = !!(data && data.connected);
 
-    var savedPhone = (data && data.user && data.user.phone) || localStorage.getItem("akb_wa_phone") || "9441753678";
-    var savedName = (data && data.user && data.user.name) || localStorage.getItem("akb_wa_name") || "Anudeep Khadi Bandar";
+    if (isBotConnected) {
+        updateWhatsappSidebarDot(true, false);
+        var userPhone = (data && data.user && data.user.phone) || "9441753678";
+        var userName = (data && data.user && data.user.name) || "Anudeep Khadi Bandar";
 
-    if (isConnected) {
-        updateWhatsappSidebarDot(true);
         container.innerHTML = 
             '<div style="text-align:center; padding:6px 0;">' +
-                '<div style="display:inline-flex; align-items:center; gap:8px; background:#ecfdf5; border:1px solid #10b981; color:#065f46; font-size:1rem; font-weight:700; padding:8px 18px; border-radius:30px; margin-bottom:16px;">' +
-                    '<i class="ph ph-check-circle" style="font-size:1.3rem; color:#10b981;"></i> WhatsApp Logged In & Active' +
+                '<div style="display:inline-flex; align-items:center; gap:8px; background:#ecfdf5; border:1px solid #10b981; color:#065f46; font-size:0.95rem; font-weight:700; padding:8px 16px; border-radius:30px; margin-bottom:14px;">' +
+                    '<i class="ph ph-check-circle" style="font-size:1.3rem; color:#10b981;"></i> WhatsApp Bot Connected & Ready' +
                 '</div>' +
-                '<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px; text-align:left; font-size:0.88rem; margin-bottom:16px;">' +
-                    '<div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:1px dashed #cbd5e1; padding-bottom:6px;">' +
-                        '<span style="color:var(--tl)">Sender Account:</span>' +
-                        '<span style="font-weight:700; color:var(--fg);">' + U.esc(savedName) + '</span>' +
+                '<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:12px 14px; text-align:left; font-size:0.86rem; margin-bottom:14px;">' +
+                    '<div style="display:flex; justify-content:space-between; margin-bottom:6px; border-bottom:1px dashed #cbd5e1; padding-bottom:5px;">' +
+                        '<span style="color:var(--tl)">Sender Name:</span>' +
+                        '<span style="font-weight:700; color:var(--fg);">' + U.esc(userName) + '</span>' +
                     '</div>' +
-                    '<div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:1px dashed #cbd5e1; padding-bottom:6px;">' +
-                        '<span style="color:var(--tl)">WhatsApp Number:</span>' +
-                        '<span style="font-weight:700; color:#059669;">+' + U.esc(savedPhone) + '</span>' +
+                    '<div style="display:flex; justify-content:space-between; margin-bottom:6px; border-bottom:1px dashed #cbd5e1; padding-bottom:5px;">' +
+                        '<span style="color:var(--tl)">Sender WhatsApp:</span>' +
+                        '<span style="font-weight:700; color:#059669;">+' + U.esc(userPhone) + '</span>' +
                     '</div>' +
                     '<div style="display:flex; justify-content:space-between;">' +
-                        '<span style="color:var(--tl)">Dispatch Status:</span>' +
-                        '<span style="font-weight:700; color:#16a34a;"><i class="ph ph-check-circle-fill"></i> Ready to Send Invoices</span>' +
+                        '<span style="color:var(--tl)">Auto-Dispatch:</span>' +
+                        '<span style="font-weight:700; color:#16a34a;"><i class="ph ph-lightning"></i> Active (No waiting / No new tab)</span>' +
                     '</div>' +
                 '</div>' +
-                '<div style="font-size:0.82rem; color:var(--tl); margin-bottom:18px; line-height:1.4;">' +
-                    'Your WhatsApp account is active. When you generate invoices, direct WhatsApp messaging and invoice delivery are ready.' +
+
+                '<!-- Send Test Message Box -->' +
+                '<div style="background:#fff; border:1px solid #bbf7d0; border-radius:10px; padding:12px; margin-bottom:14px; text-align:left;">' +
+                    '<div style="font-size:0.82rem; font-weight:700; color:#166534; margin-bottom:6px;"><i class="ph ph-paper-plane-tilt"></i> Verify Connection (Send Test Message):</div>' +
+                    '<div style="display:flex; gap:8px;">' +
+                        '<input type="text" id="wa-test-phone" value="' + U.esc(userPhone) + '" placeholder="10-digit number" style="flex:1; padding:7px 10px; font-size:0.85rem; border:1px solid var(--bd); border-radius:6px;" />' +
+                        '<button id="btn-wa-send-test" class="btn btn-primary" onclick="sendWhatsappTestMessage()" style="padding:7px 12px; font-size:0.85rem; white-space:nowrap; background:#25D366; border-color:#25D366;"><i class="ph ph-paper-plane"></i> Test Send</button>' +
+                    '</div>' +
                 '</div>' +
-                '<div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">' +
-                    '<a href="https://web.whatsapp.com" target="_blank" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;"><i class="ph ph-arrow-square-out"></i> Open WhatsApp Web</a>' +
-                    '<button class="btn btn-secondary" onclick="fetchWhatsappStatus(true)"><i class="ph ph-arrows-clockwise"></i> Refresh</button>' +
-                    '<button class="btn" style="background:#dc2626; color:#fff; border:none; font-weight:700; display:inline-flex; align-items:center; gap:6px; border-radius:6px; padding:8px 14px;" onclick="logoutWhatsapp()"><i class="ph ph-sign-out"></i> Log Out</button>' +
+
+                '<div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">' +
+                    '<a href="https://web.whatsapp.com" target="_blank" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px; font-size:0.85rem;"><i class="ph ph-arrow-square-out"></i> WhatsApp Web</a>' +
+                    '<button class="btn btn-secondary" onclick="fetchWhatsappStatus(true)" style="font-size:0.85rem;"><i class="ph ph-arrows-clockwise"></i> Refresh</button>' +
+                    '<button class="btn" style="background:#dc2626; color:#fff; border:none; font-weight:700; display:inline-flex; align-items:center; gap:6px; border-radius:6px; padding:7px 12px; font-size:0.85rem;" onclick="logoutWhatsapp()"><i class="ph ph-sign-out"></i> Unlink</button>' +
                 '</div>' +
             '</div>';
     } else if (state === "loading") {
         container.innerHTML = 
             '<div style="text-align:center; padding:30px 15px;">' +
-                '<div class="spinner" style="width:40px; height:40px; border:3px solid #e2e8f0; border-top:3px solid #25D366; border-radius:50%; margin:0 auto 16px; animation:spin 0.8s linear infinite;"></div>' +
-                '<div style="font-weight:700; color:var(--fg); margin-bottom:6px;">' + (data && data.message ? data.message : 'Connecting to WhatsApp...') + '</div>' +
+                '<div class="spinner" style="width:38px; height:38px; border:3px solid #e2e8f0; border-top:3px solid #25D366; border-radius:50%; margin:0 auto 14px; animation:spin 0.8s linear infinite;"></div>' +
+                '<div style="font-weight:700; color:var(--fg); margin-bottom:4px;">' + (data && data.message ? data.message : 'Connecting to WhatsApp Client...') + '</div>' +
                 '<div style="font-size:0.82rem; color:var(--tl);">Please wait a moment.</div>' +
             '</div>';
     } else {
-        // Not logged in: Show prominent, attractive LOGIN options!
-        updateWhatsappSidebarDot(false);
+        // Not connected: Present QR Code and Phone Pairing Code Tabs
+        updateWhatsappSidebarDot(false, !!(data && (data.qr || data.pairingCode)));
 
-        var qrSection = (data && data.qr) 
-            ? '<div style="margin-bottom:14px; padding:12px; background:#fff; border:2px solid #25D366; border-radius:10px; text-align:center;">' +
-                '<div style="font-size:0.85rem; font-weight:700; color:#15803d; margin-bottom:8px;"><i class="ph ph-qr-code"></i> Scan with WhatsApp to Link Device:</div>' +
-                '<img src="' + data.qr + '" style="width:190px; height:190px; object-fit:contain; display:block; margin:0 auto 8px;" alt="QR Code" />' +
-                '<div style="font-size:0.75rem; color:var(--tl);">WhatsApp &rarr; Linked Devices &rarr; Link a Device</div>' +
-              '</div>'
-            : '';
+        var activeTab = _waActiveTab || 'qr';
+
+        var tabNav = 
+            '<div style="display:flex; background:#f1f5f9; border-radius:8px; padding:3px; margin-bottom:14px;">' +
+                '<button type="button" onclick="setWaTab(\'qr\')" style="flex:1; border:none; padding:7px; border-radius:6px; font-size:0.84rem; font-weight:700; cursor:pointer; background:' + (activeTab === 'qr' ? '#fff; color:#0f172a; box-shadow:0 1px 3px rgba(0,0,0,0.1);' : 'transparent; color:#64748b;') + '"><i class="ph ph-qr-code"></i> Scan QR Code</button>' +
+                '<button type="button" onclick="setWaTab(\'phone\')" style="flex:1; border:none; padding:7px; border-radius:6px; font-size:0.84rem; font-weight:700; cursor:pointer; background:' + (activeTab === 'phone' ? '#fff; color:#0f172a; box-shadow:0 1px 3px rgba(0,0,0,0.1);' : 'transparent; color:#64748b;') + '"><i class="ph ph-hash"></i> Link with Phone Number</button>' +
+            '</div>';
+
+        var tabContent = '';
+
+        if (activeTab === 'qr') {
+            if (data && data.qr) {
+                tabContent = 
+                    '<div style="margin-bottom:12px; padding:12px; background:#fff; border:2px solid #25D366; border-radius:12px; text-align:center;">' +
+                        '<div style="font-size:0.84rem; font-weight:700; color:#15803d; margin-bottom:8px;"><i class="ph ph-camera"></i> Point your WhatsApp Camera at this QR Code:</div>' +
+                        '<img src="' + data.qr + '" style="width:200px; height:200px; object-fit:contain; display:block; margin:0 auto 10px; border-radius:6px;" alt="WhatsApp Login QR Code" />' +
+                        '<div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:8px 10px; font-size:0.78rem; text-align:left; color:#166534; line-height:1.4;">' +
+                            '<b>Instructions:</b><br/>' +
+                            '1. Open <b>WhatsApp</b> on your phone.<br/>' +
+                            '2. Tap <b>⋮ (Settings)</b> &rarr; <b>Linked Devices</b>.<br/>' +
+                            '3. Tap <b>Link a Device</b> and point camera here.' +
+                        '</div>' +
+                    '</div>';
+            } else {
+                tabContent = 
+                    '<div style="padding:24px 12px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px; text-align:center; margin-bottom:12px;">' +
+                        '<div class="spinner" style="width:32px; height:32px; border:3px solid #e2e8f0; border-top:3px solid #25D366; border-radius:50%; margin:0 auto 12px; animation:spin 0.8s linear infinite;"></div>' +
+                        '<div style="font-weight:700; font-size:0.9rem; color:var(--fg);">Generating QR Code...</div>' +
+                        '<div style="font-size:0.78rem; color:var(--tl); margin-top:4px;">Starting WhatsApp client in background. Please wait.</div>' +
+                    '</div>';
+            }
+        } else {
+            // Phone number pairing code tab
+            var existingCode = (data && data.pairingCode) || '';
+            var codeDisplay = existingCode ? 
+                '<div style="background:#ecfdf5; border:2px dashed #10b981; border-radius:10px; padding:12px; margin-bottom:12px; text-align:center;">' +
+                    '<div style="font-size:0.75rem; color:#065f46; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Your 8-Digit Pairing Code:</div>' +
+                    '<div style="font-family:monospace; font-size:1.6rem; font-weight:800; color:#047857; letter-spacing:4px; margin:6px 0;">' + U.esc(existingCode) + '</div>' +
+                    '<div style="font-size:0.78rem; color:#065f46; line-height:1.4;">' +
+                        'Open WhatsApp on your phone &rarr; <b>Linked Devices</b> &rarr; <b>Link with phone number instead</b> &rarr; Enter this code.' +
+                    '</div>' +
+                '</div>' : '';
+
+            tabContent = 
+                '<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px; text-align:left; margin-bottom:12px;">' +
+                    codeDisplay +
+                    '<label style="font-size:0.8rem; font-weight:700; color:var(--fg); display:block; margin-bottom:4px;">Enter your WhatsApp Phone Number:</label>' +
+                    '<div style="display:flex; gap:8px; margin-bottom:8px;">' +
+                        '<input type="text" id="wa-pairing-phone" value="9441753678" placeholder="91XXXXXXXXXX" style="flex:1; padding:8px 10px; font-size:0.88rem; border:1px solid var(--bd); border-radius:6px;" />' +
+                        '<button type="button" id="btn-request-pairing" onclick="requestWhatsappPairingCode()" class="btn btn-primary" style="white-space:nowrap; padding:8px 14px; background:#25D366; border-color:#25D366; font-weight:700;"><i class="ph ph-key"></i> Get Code</button>' +
+                    '</div>' +
+                    '<div style="font-size:0.74rem; color:var(--tl); line-height:1.35;">No camera required. WhatsApp will show an alert on your phone to link using this code.</div>' +
+                '</div>';
+        }
 
         container.innerHTML = 
-            '<div style="text-align:center; padding:4px 0;">' +
-                '<div style="font-size:1.05rem; font-weight:800; color:var(--fg); margin-bottom:4px;">Log In to WhatsApp</div>' +
-                '<div style="font-size:0.82rem; color:var(--tl); margin-bottom:16px;">Connect your WhatsApp account to send invoices to customers.</div>' +
+            '<div style="text-align:center; padding:2px 0;">' +
+                '<div style="font-size:1.05rem; font-weight:800; color:var(--fg); margin-bottom:2px;">Link WhatsApp Bot</div>' +
+                '<div style="font-size:0.8rem; color:var(--tl); margin-bottom:12px;">Link once to automatically deliver invoices to customers & store.</div>' +
 
-                qrSection +
+                tabNav +
+                tabContent +
 
-                '<div style="margin-bottom:14px;">' +
-                    '<a href="https://web.whatsapp.com" target="_blank" onclick="loginWithWhatsAppWeb()" class="btn btn-primary" style="background:#25D366; border-color:#25D366; width:100%; padding:12px; font-size:1rem; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; border-radius:10px; box-shadow:0 4px 14px rgba(37,211,102,0.3);">' +
-                        '<i class="ph ph-whatsapp-logo" style="font-size:1.4rem;"></i> Log In to WhatsApp Web' +
-                    '</a>' +
-                    '<div style="font-size:0.75rem; color:var(--tl); margin-top:4px;">Opens WhatsApp Web in a new tab. Scan QR code once to link device.</div>' +
-                '</div>' +
-
-                '<div style="display:flex; align-items:center; gap:10px; margin:14px 0; color:var(--tl); font-size:0.78rem;">' +
-                    '<div style="flex:1; border-top:1px solid #e2e8f0;"></div>' +
-                    '<span>OR LOGIN WITH MOBILE NUMBER</span>' +
-                    '<div style="flex:1; border-top:1px solid #e2e8f0;"></div>' +
-                '</div>' +
-
-                '<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px; text-align:left; margin-bottom:14px;">' +
-                    '<div style="margin-bottom:8px;">' +
-                        '<label style="font-size:0.78rem; font-weight:700; color:var(--fg); display:block; margin-bottom:3px;">Sender WhatsApp Number:</label>' +
-                        '<input type="text" id="wa-login-phone" value="' + U.esc(savedPhone) + '" placeholder="91XXXXXXXXXX" style="width:100%; padding:8px 10px; font-size:0.88rem; border:1px solid var(--bd); border-radius:6px; box-sizing:border-box;" />' +
-                    '</div>' +
-                    '<div style="margin-bottom:10px;">' +
-                        '<label style="font-size:0.78rem; font-weight:700; color:var(--fg); display:block; margin-bottom:3px;">Sender / Business Name:</label>' +
-                        '<input type="text" id="wa-login-name" value="' + U.esc(savedName) + '" placeholder="Anudeep Khadi Bandar" style="width:100%; padding:8px 10px; font-size:0.88rem; border:1px solid var(--bd); border-radius:6px; box-sizing:border-box;" />' +
-                    '</div>' +
-                    '<button class="btn btn-primary" onclick="loginWithPhone()" style="width:100%; padding:9px; font-weight:700; border-radius:6px; display:flex; align-items:center; justify-content:center; gap:6px;">' +
-                        '<i class="ph ph-check-circle"></i> Log In & Save Sender' +
-                    '</button>' +
-                '</div>' +
-
-                '<div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">' +
-                    '<button class="btn btn-secondary" onclick="loginWithBot()"><i class="ph ph-arrows-clockwise"></i> Check Desktop Bot Server</button>' +
-                    '<button class="btn btn-secondary" onclick="closeWhatsappModal()">Close</button>' +
+                '<div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:8px;">' +
+                    '<a href="https://web.whatsapp.com" target="_blank" class="btn btn-secondary" style="font-size:0.84rem; text-decoration:none; display:inline-flex; align-items:center; gap:5px;"><i class="ph ph-arrow-square-out"></i> WhatsApp Web</a>' +
+                    '<button class="btn btn-secondary" onclick="fetchWhatsappStatus(true)" style="font-size:0.84rem;"><i class="ph ph-arrows-clockwise"></i> Refresh</button>' +
+                    '<button class="btn btn-secondary" onclick="closeWhatsappModal()" style="font-size:0.84rem;">Close</button>' +
                 '</div>' +
             '</div>';
     }
 }
 
-function loginWithWhatsAppWeb() {
-    localStorage.setItem("akb_wa_logged_in", "true");
-    U.toast("Opening WhatsApp Web to log in...", "info");
-    setTimeout(function() {
-        fetchWhatsappStatus(false);
-    }, 1500);
-}
-
-function loginWithPhone() {
-    var pEl = document.getElementById("wa-login-phone");
-    var nEl = document.getElementById("wa-login-name");
+async function requestWhatsappPairingCode() {
+    var pEl = document.getElementById("wa-pairing-phone");
     var phone = pEl ? pEl.value.trim() : "";
-    var name = nEl ? nEl.value.trim() : "Anudeep Khadi Bandar";
     if (!phone) {
-        U.toast("Please enter your WhatsApp phone number", "warning");
+        U.toast("Please enter your 10-digit phone number", "warning");
         return;
     }
-    phone = phone.replace(/\D/g, '');
-    if (phone.length === 10) phone = '91' + phone;
-    localStorage.setItem("akb_wa_logged_in", "true");
-    localStorage.setItem("akb_wa_phone", phone);
-    localStorage.setItem("akb_wa_name", name);
-    U.toast("WhatsApp Account Logged In Successfully!", "success");
-    fetchWhatsappStatus(false);
-}
-
-async function loginWithBot() {
-    renderWhatsappModal("loading", { message: "Connecting to Desktop Bot server..." });
+    var btn = document.getElementById("btn-request-pairing");
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ph ph-spinner"></i> Generating...'; }
     try {
         var base = getWaApiUrl();
-        var res = await originalFetch(base + '/whatsapp/login', {
+        var res = await originalFetch(base + '/whatsapp/pairing-code', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: phone })
         });
         var data = await res.json();
-        if (data && data.connected) {
-            localStorage.setItem("akb_wa_logged_in", "true");
-            renderWhatsappModal("connected", data);
-            U.toast("Connected to WhatsApp Bot!", "success");
-            return;
+        if (data && data.success && data.pairingCode) {
+            U.toast("⚡ Pairing Code Generated: " + data.pairingCode, "success");
+            _waActiveTab = 'phone';
+            if (_waStatusState) _waStatusState.pairingCode = data.pairingCode;
+            else _waStatusState = { connected: false, pairingCode: data.pairingCode };
+            renderWhatsappModal("login", _waStatusState);
+        } else {
+            U.toast(data && data.error ? data.error : "Failed to generate pairing code", "error");
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ph ph-key"></i> Get Code'; }
         }
-        setTimeout(function() { fetchWhatsappStatus(false); }, 1500);
-    } catch(e) {
-        U.toast("Desktop Bot not running locally. You can use WhatsApp Web Login!", "info");
-        renderWhatsappModal("login", null);
+    } catch(err) {
+        U.toast("Network error requesting pairing code: " + err.message, "error");
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ph ph-key"></i> Get Code'; }
+    }
+}
+
+async function sendWhatsappTestMessage() {
+    var pEl = document.getElementById("wa-test-phone");
+    var phone = pEl ? pEl.value.trim() : "";
+    var btn = document.getElementById("btn-wa-send-test");
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ph ph-spinner"></i> Sending...'; }
+    try {
+        var base = getWaApiUrl();
+        var res = await originalFetch(base + '/whatsapp/sendTest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: phone })
+        });
+        var data = await res.json();
+        if (data && data.success) {
+            U.toast("✅ Test message delivered to " + (phone || "your WhatsApp") + "!", "success");
+        } else {
+            U.toast("❌ Failed to send: " + (data.error || "Unknown error"), "error");
+        }
+    } catch(err) {
+        U.toast("Network error sending test: " + err.message, "error");
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ph ph-paper-plane"></i> Test Send'; }
     }
 }
 
 async function logoutWhatsapp() {
-    if (!confirm("Are you sure you want to log out of WhatsApp?")) return;
-    localStorage.removeItem("akb_wa_logged_in");
-    localStorage.removeItem("akb_wa_phone");
-    renderWhatsappModal("loading", { message: "Logging out of WhatsApp..." });
+    if (!confirm("Are you sure you want to unlink and log out of WhatsApp?")) return;
+    renderWhatsappModal("loading", { message: "Unlinking WhatsApp session..." });
     try {
         var base = getWaApiUrl();
         await originalFetch(base + '/whatsapp/logout', { method: 'POST' }).catch(function(){});
     } catch(e) {}
-    U.toast("Logged out of WhatsApp successfully", "info");
+    U.toast("WhatsApp unlinked successfully. Generating new QR code.", "info");
     setTimeout(function() {
         fetchWhatsappStatus(false);
-    }, 600);
+    }, 1200);
 }
 
 async function fetchWhatsappStatus(showToast) {
     try {
         var base = getWaApiUrl();
         var ctrl = new AbortController();
-        var timer = setTimeout(function(){ ctrl.abort(); }, 3000);
+        var timer = setTimeout(function(){ ctrl.abort(); }, 4000);
         var res = await originalFetch(base + '/whatsapp/status', { signal: ctrl.signal });
         clearTimeout(timer);
         var data = await res.json();
         _waStatusState = data;
         if (data.connected) {
-            localStorage.setItem("akb_wa_logged_in", "true");
+            updateWhatsappSidebarDot(true, false);
             renderWhatsappModal("connected", data);
-            if (showToast) U.toast("WhatsApp is connected & active", "success");
-        } else if (data.qr) {
+            if (showToast) U.toast("WhatsApp Bot is connected & active", "success");
+        } else if (data.qr || data.pairingCode) {
+            updateWhatsappSidebarDot(false, true);
             renderWhatsappModal("login", data);
-            if (showToast) U.toast("Please scan the QR code to log in", "info");
+            if (showToast) U.toast("Please scan QR code or enter pairing code to link WhatsApp", "info");
         } else {
+            updateWhatsappSidebarDot(false, false);
             renderWhatsappModal("login", data);
         }
     } catch(err) {
         _waStatusState = { connected: false, offline: true };
+        updateWhatsappSidebarDot(false, false);
         renderWhatsappModal("login", null);
-        if (showToast) U.toast("WhatsApp Login ready", "info");
+        if (showToast) U.toast("WhatsApp Bot server offline", "warning");
     }
 }
 
@@ -4129,18 +4194,9 @@ function closeWhatsappModal() {
 // Background initial status check
 setTimeout(function() {
     try {
-        var isLocalLoggedIn = localStorage.getItem("akb_wa_logged_in") === "true";
-        if (isLocalLoggedIn) {
-            updateWhatsappSidebarDot(true);
-        } else {
-            var base = getWaApiUrl();
-            originalFetch(base + '/whatsapp/status').then(function(r){ return r.json(); }).then(function(d){
-                if (d && d.connected) updateWhatsappSidebarDot(true);
-                else updateWhatsappSidebarDot(false);
-            }).catch(function(){ updateWhatsappSidebarDot(false); });
-        }
+        fetchWhatsappStatus(false);
     } catch(e){}
-}, 2000);
+}, 1500);
 </script>
 <script>
 

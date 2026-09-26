@@ -168,7 +168,7 @@ namespace AnudeepKhadiBandar
                 {
                     StartNodeProcess(nodeExe, serverJs);
 
-                    for (int i = 0; i < 25; i++)
+                    for (int i = 0; i < 60; i++)
                     {
                         Thread.Sleep(250);
                         if (IsUrlResponding("http://localhost:3000/api/health", 500))

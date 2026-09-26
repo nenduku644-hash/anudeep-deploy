@@ -250,10 +250,45 @@ function broadcastRealtime(eventType, payload) {
 // 3. WHATSAPP CLIENT SETUP
 // ==========================================
 let qrCodeDataUrl = null;
+let lastPairingCode = null;
 let isWhatsappConnected = false;
 let client = null;
 let whatsappUserInfo = null;
 let isWhatsappInitializing = false;
+
+function findChromeExecutable() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+  const possiblePaths = [
+    path.join(process.env.USERPROFILE || 'C:\\Users\\ADMIN', '.cache', 'puppeteer', 'chrome', 'win64-146.0.7680.31', 'chrome-win64', 'chrome.exe'),
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined;
+}
+
+async function resolveChatId(cl, phone) {
+  if (!cl || !phone) return null;
+  let clean = String(phone).replace(/\D/g, '');
+  if (clean.length === 10) clean = '91' + clean;
+  if (!clean || clean.length < 10) return null;
+
+  try {
+    const numberId = await cl.getNumberId(clean);
+    if (numberId && numberId._serialized && !numberId._serialized.endsWith('@lid')) {
+      return numberId._serialized;
+    }
+  } catch (e) {
+    console.warn(`[WhatsApp] getNumberId note for ${clean}:`, e.message);
+  }
+  return clean + '@c.us';
+}
 
 function initWhatsappClient() {
   if (isWhatsappInitializing) {
@@ -264,17 +299,23 @@ function initWhatsappClient() {
   try {
     const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
     console.log('[WhatsApp] Initializing WhatsApp Client in background...');
+    const detectedChrome = findChromeExecutable();
+    console.log('[WhatsApp] Using Browser Executable:', detectedChrome || 'Bundled Puppeteer Default');
+
     client = new Client({
-      authStrategy: new LocalAuth(),
+      authStrategy: new LocalAuth({
+        dataPath: path.join(__dirname, '.wwebjs_auth')
+      }),
       puppeteer: {
         headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        executablePath: detectedChrome,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-extensions',
           '--disable-dev-shm-usage',
-          '--disable-gpu'
+          '--disable-gpu',
+          '--no-first-run'
         ]
       }
     });
@@ -286,7 +327,12 @@ function initWhatsappClient() {
       isWhatsappInitializing = false;
       try {
         qrCodeDataUrl = await qrcode.toDataURL(qr);
-        broadcastRealtime('whatsapp_status', { connected: false, status: 'qr_ready', qr: qrCodeDataUrl });
+        broadcastRealtime('whatsapp_status', {
+          connected: false,
+          status: 'qr_ready',
+          qr: qrCodeDataUrl,
+          pairingCode: lastPairingCode
+        });
       } catch (err) {
         console.error('[WhatsApp] Failed to generate QR Data URL', err);
       }
@@ -296,11 +342,12 @@ function initWhatsappClient() {
       console.log('⚡ [WhatsApp] Client is ready and connected!');
       isWhatsappConnected = true;
       qrCodeDataUrl = null;
+      lastPairingCode = null;
       isWhatsappInitializing = false;
       try {
         whatsappUserInfo = {
           phone: (client.info && client.info.wid && client.info.wid.user) ? client.info.wid.user : '',
-          name: (client.info && client.info.pushname) ? client.info.pushname : ''
+          name: (client.info && client.info.pushname) ? client.info.pushname : 'Anudeep Khadi Bandar'
         };
       } catch (e) {
         whatsappUserInfo = null;
@@ -310,6 +357,7 @@ function initWhatsappClient() {
 
     client.on('authenticated', () => {
       console.log('[WhatsApp] Authenticated successfully!');
+      lastPairingCode = null;
     });
 
     client.on('auth_failure', msg => {
@@ -317,6 +365,7 @@ function initWhatsappClient() {
       isWhatsappConnected = false;
       whatsappUserInfo = null;
       isWhatsappInitializing = false;
+      lastPairingCode = null;
       broadcastRealtime('whatsapp_status', { connected: false, status: 'auth_failure' });
     });
 
@@ -325,8 +374,17 @@ function initWhatsappClient() {
       isWhatsappConnected = false;
       whatsappUserInfo = null;
       qrCodeDataUrl = null;
+      lastPairingCode = null;
       isWhatsappInitializing = false;
       broadcastRealtime('whatsapp_status', { connected: false, status: 'disconnected', reason });
+
+      // Automatically attempt auto-reconnect after 3 seconds
+      setTimeout(() => {
+        if (!isWhatsappConnected && !isWhatsappInitializing) {
+          console.log('[WhatsApp] Auto-reconnecting after disconnect...');
+          initWhatsappClient();
+        }
+      }, 3000);
     });
 
     client.initialize().catch(e => {
@@ -1093,9 +1151,72 @@ app.get('/api/whatsapp/status', (req, res) => {
   res.json({
     connected: isWhatsappConnected,
     qr: qrCodeDataUrl,
+    pairingCode: lastPairingCode,
     user: whatsappUserInfo,
-    status: isWhatsappConnected ? 'connected' : (qrCodeDataUrl ? 'qr_ready' : (isWhatsappInitializing ? 'initializing' : 'disconnected'))
+    status: isWhatsappConnected ? 'connected' : (lastPairingCode ? 'pairing_code_ready' : (qrCodeDataUrl ? 'qr_ready' : (isWhatsappInitializing ? 'initializing' : 'disconnected')))
   });
+});
+
+app.post('/api/whatsapp/pairing-code', async (req, res) => {
+  if (isWhatsappConnected) {
+    return res.json({ success: true, message: 'Already connected to WhatsApp!', connected: true, user: whatsappUserInfo });
+  }
+  if (!client) {
+    initWhatsappClient();
+    return res.status(503).json({ error: 'WhatsApp client is starting up. Please try again in 5 seconds.' });
+  }
+  try {
+    let phone = req.body.phone;
+    if (!phone) return res.status(400).json({ error: 'Please enter a valid phone number.' });
+    phone = phone.replace(/\D/g, '');
+    if (phone.length === 10) phone = '91' + phone;
+
+    console.log(`[WhatsApp] Requesting pairing code for phone: ${phone}...`);
+    const code = await client.requestPairingCode(phone);
+    lastPairingCode = code;
+    console.log(`⚡ [WhatsApp] Pairing code generated: ${code}`);
+
+    broadcastRealtime('whatsapp_status', {
+      connected: false,
+      status: 'pairing_code_ready',
+      pairingCode: code,
+      qr: qrCodeDataUrl
+    });
+
+    res.json({
+      success: true,
+      pairingCode: code,
+      phone: phone,
+      message: 'Pairing code generated! Open WhatsApp on your phone -> Linked Devices -> Link with phone number.'
+    });
+  } catch (err) {
+    console.error('[WhatsApp] Pairing code error:', err.message);
+    res.status(500).json({ error: 'Failed to generate pairing code: ' + err.message });
+  }
+});
+
+app.post('/api/whatsapp/sendTest', async (req, res) => {
+  if (!isWhatsappConnected || !client) {
+    return res.status(400).json({ error: 'WhatsApp is not connected. Please scan QR or enter pairing code first.' });
+  }
+  try {
+    let phone = req.body.phone || (whatsappUserInfo && whatsappUserInfo.phone) || '919441753678';
+    const targetChatId = await resolveChatId(client, phone);
+    if (!targetChatId) return res.status(400).json({ error: 'Invalid phone number format.' });
+
+    const testMsg = `🧾 *ANUDEEP KHADI BANDAR*\n` +
+      `✅ *WhatsApp Bot Test Successful!*\n\n` +
+      `This confirms that your WhatsApp Bot is active and connected.\n` +
+      `Invoices created in the billing app will be delivered automatically.\n\n` +
+      `📅 ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`;
+
+    await client.sendMessage(targetChatId, testMsg);
+    console.log(`[WhatsApp] Test message sent to ${targetChatId}`);
+    res.json({ success: true, message: `Test message delivered to ${phone}!` });
+  } catch (err) {
+    console.error('[WhatsApp] Test message error:', err);
+    res.status(500).json({ error: 'Failed to send test message: ' + err.message });
+  }
 });
 
 app.post('/api/whatsapp/login', async (req, res) => {
@@ -1135,6 +1256,7 @@ app.post('/api/whatsapp/logout', async (req, res) => {
     }
     isWhatsappConnected = false;
     qrCodeDataUrl = null;
+    lastPairingCode = null;
     whatsappUserInfo = null;
     isWhatsappInitializing = false;
 
@@ -1162,14 +1284,13 @@ app.post('/api/whatsapp/logout', async (req, res) => {
   }
 });
 
-
 app.post('/api/whatsapp/sendPdf', upload.single('file'), async (req, res) => {
   const filePath = req.file && req.file.path;
   const cleanup = () => { if (filePath && fs.existsSync(filePath)) fs.unlink(filePath, () => {}); };
 
   if (!isWhatsappConnected || !client) {
     cleanup();
-    return res.status(400).json({ error: 'WhatsApp is not connected. Please scan the QR code first.' });
+    return res.status(400).json({ error: 'WhatsApp is not connected. Please scan QR or enter pairing code first.' });
   }
 
   try {
@@ -1178,18 +1299,11 @@ app.post('/api/whatsapp/sendPdf', upload.single('file'), async (req, res) => {
       cleanup();
       return res.status(400).json({ error: 'Missing customer phone number' });
     }
-    // Clean phone number to digits only
-    phone = phone.replace(/\D/g, '');
-    if (phone.length === 10) phone = '91' + phone;
 
-    let targetChatId = phone + '@c.us';
-    try {
-      const numberId = await client.getNumberId(phone);
-      if (numberId && numberId._serialized && !numberId._serialized.endsWith('@lid')) {
-        targetChatId = numberId._serialized;
-      }
-    } catch (numErr) {
-      console.warn('getNumberId note:', numErr.message);
+    const targetChatId = await resolveChatId(client, phone);
+    if (!targetChatId) {
+      cleanup();
+      return res.status(400).json({ error: 'Invalid phone number format' });
     }
 
     if (!filePath || !fs.existsSync(filePath)) {
@@ -1224,22 +1338,18 @@ app.post('/api/whatsapp/sendPdf', upload.single('file'), async (req, res) => {
 
 app.post('/api/whatsapp/sendMessage', async (req, res) => {
   if (!isWhatsappConnected || !client) {
-    return res.status(400).json({ error: 'WhatsApp is not connected.' });
+    return res.status(400).json({ error: 'WhatsApp is not connected. Please scan QR code or enter pairing code.' });
   }
   try {
     let phone = req.body.phone;
     let message = req.body.message;
     if (!phone || !message) return res.status(400).json({ error: 'Missing phone or message' });
-    phone = phone.replace(/\D/g, '');
-    if (phone.length === 10) phone = '91' + phone;
 
-    let targetChatId = phone + '@c.us';
-    try {
-      const numberId = await client.getNumberId(phone);
-      if (numberId && numberId._serialized) targetChatId = numberId._serialized;
-    } catch (e) {}
+    const targetChatId = await resolveChatId(client, phone);
+    if (!targetChatId) return res.status(400).json({ error: 'Invalid phone number format.' });
 
     await client.sendMessage(targetChatId, message);
+    console.log(`[WhatsApp] Message sent successfully to ${targetChatId}`);
     res.json({ success: true, message: 'WhatsApp message sent successfully!' });
   } catch (err) {
     console.error('Error sending WhatsApp text message:', err);
@@ -1378,22 +1488,38 @@ async function autoDispatchBots(inv) {
         if (!recipientPhones.includes(sp)) recipientPhones.push(sp);
       }
 
+      let itemLines = '';
+      if (inv.items && inv.items.length) {
+        itemLines = inv.items.slice(0, 10).map((it, idx) => 
+          `  • Bale ${it.baleNo || (idx+1)}: ${it.description || 'Item'} (${it.qty || 0} pcs) - ₹${Number(it.amount||0).toFixed(2)}`
+        ).join('\n');
+        if (inv.items.length > 10) itemLines += `\n  ... and ${inv.items.length - 10} more items`;
+      }
+
+      const totalGst = Number((inv.cgstAmount || 0) + (inv.sgstAmount || 0) + (inv.igstAmount || 0)).toFixed(2);
       const waText = `🧾 *ANUDEEP KHADI BANDAR*\n` +
-        `*TAX INVOICE #${invNo}*\n\n` +
-        `Dear ${custName},\n` +
-        `Thank you for your purchase!\n\n` +
-        `📅 Date: ${inv.date || new Date().toISOString().slice(0, 10)}\n` +
-        `📦 Items: ${itemsCount}\n` +
-        `💵 Grand Total: ₹${totalAmt}\n\n` +
+        `*TAX INVOICE #${invNo}*\n` +
+        `────────────────────────\n` +
+        `👤 *Customer*: ${custName}\n` +
+        (custPhone ? `📞 *Phone*: ${custPhone}\n` : '') +
+        `📅 *Date*: ${inv.date || new Date().toISOString().slice(0, 10)}\n` +
+        (inv.placeOfSupply ? `📍 *Place of Supply*: ${inv.placeOfSupply} (${inv.stateCode || '37'})\n` : '') +
+        `────────────────────────\n` +
+        (itemLines ? `📦 *Items* (${itemsCount}):\n${itemLines}\n────────────────────────\n` : '') +
+        `💰 *Taxable Amount*: ₹${Number(inv.taxableAmount || 0).toFixed(2)}\n` +
+        `➕ *Total GST (5%)*: ₹${totalGst}\n` +
+        `💵 *Grand Total*: ₹${totalAmt}\n` +
+        `────────────────────────\n` +
+        `🏦 *Axis Bank, Tenali* | A/C: 914020009962721 | IFSC: UTIB0000556\n` +
+        `🏪 *Anudeep Khadi Bandar*\n` +
         `GSTIN: 37BTMPS9234C1ZA\n` +
         `Ph: 9441753678, 9390361151\n` +
-        `Tenali, Andhra Pradesh`;
+        `Tenali, Andhra Pradesh\n` +
+        `🙏 Thank you for your purchase!`;
 
       for (let phone of recipientPhones) {
-        let clean = phone.replace(/\D/g, '');
-        if (clean.length === 10) clean = '91' + clean;
-        if (clean.length >= 10) {
-          const targetChatId = clean + '@c.us';
+        const targetChatId = await resolveChatId(client, phone);
+        if (targetChatId) {
           try {
             await client.sendMessage(targetChatId, waText);
             console.log(`[Auto-WhatsApp] Dispatched invoice #${invNo} text to ${targetChatId}`);
@@ -1402,6 +1528,9 @@ async function autoDispatchBots(inv) {
           }
         }
       }
+      broadcastRealtime('whatsapp_dispatched', { invoiceNo: invNo, recipients: recipientPhones });
+    } else {
+      console.log(`[Auto-WhatsApp] Bot not connected. Invoice #${invNo} stored. Link WhatsApp in UI to enable auto-send.`);
     }
   } catch (err) {
     console.error('[Auto-WhatsApp] Error:', err.message);
