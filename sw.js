@@ -1,4 +1,4 @@
-const CACHE_NAME = 'akb-billing-v1.2';
+const CACHE_NAME = 'akb-billing-v1.3.3';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -38,17 +38,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Network-First: Always fetch latest from network first; fall back to cache when offline
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
         }
         return networkResponse;
-      }).catch(() => cachedResponse);
-
-      return cachedResponse || fetchPromise;
-    })
+      })
+      .catch(() => caches.match(event.request))
   );
 });
