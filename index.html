@@ -253,26 +253,21 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
     color: #fff !important;
 }
 
-/* Floating Mobile Running Total & Quick Generate Bar */
-.mobile-sticky-summary {
-    display: none;
-    position: fixed;
-    bottom: 62px;
-    left: 0;
-    right: 0;
-    background: rgba(255, 255, 255, 0.97);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-top: 1px solid var(--bd);
-    padding: 0.6rem 1rem;
-    z-index: 998;
-    box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.08);
-    justify-content: space-between;
-    align-items: center;
-    animation: slideUpMob 0.25s ease;
-}
+/* Floating Mobile Running Total & Quick Generate Bar (STRICTLY HIDDEN ON DESKTOP) */
+.mobile-sticky-summary,
 .mobile-sticky-summary.visible {
-    display: flex;
+    display: none !important;
+}
+@media (min-width: 769px) {
+    #mobile-sticky-summary,
+    .mobile-sticky-summary,
+    .mobile-sticky-summary.visible {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+        height: 0 !important;
+        overflow: hidden !important;
+    }
 }
 @keyframes slideUpMob {
     from { transform: translateY(100%); opacity: 0; }
@@ -316,6 +311,26 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
     }
     .mobile-bottom-nav {
         display: flex;
+    }
+    .mobile-sticky-summary {
+        display: none !important;
+        position: fixed;
+        bottom: 62px;
+        left: 0;
+        right: 0;
+        background: rgba(255, 255, 255, 0.97);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-top: 1px solid var(--bd);
+        padding: 0.6rem 1rem;
+        z-index: 998;
+        box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.08);
+        justify-content: space-between;
+        align-items: center;
+        animation: slideUpMob 0.25s ease;
+    }
+    .mobile-sticky-summary.visible {
+        display: flex !important;
     }
     #app-container::before {
         left: 0;
@@ -541,7 +556,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
   <h2 id="page-title">Dashboard</h2>
   <div style="display:flex;align-items:center;gap:.75rem">
     <div id="cloud-update-badge" style="font-size:.78rem;font-weight:600;padding:.3rem .65rem;border-radius:2rem;background:#f0fdf4;border:1px solid #86efac;display:none;align-items:center;gap:.35rem;color:#166534;cursor:pointer" onclick="UI.show('settings-view')" title="Cloud Auto-Updater Active - Click to view">
-      <i class="ph ph-sparkle" style="color:#16a34a"></i> <span id="cloud-update-text">v1.3.3</span>
+      <i class="ph ph-sparkle" style="color:#16a34a"></i> <span id="cloud-update-text">v1.3.4</span>
     </div>
     <div id="db-sync-badge" style="font-size:.78rem;font-weight:600;padding:.3rem .65rem;border-radius:2rem;background:#f3f4f6;border:1px solid #e5e7eb;display:inline-flex;align-items:center;gap:.35rem;color:#4b5563;cursor:pointer" onclick="App.load()" title="Click to refresh data">
       <i class="ph ph-lightning" style="color:#10b981"></i> <span>Connecting...</span>
@@ -771,7 +786,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 <div class="form-group">
 <label>Application Version</label>
 <div id="updater-ver-display" style="font-size:.85rem;padding:.5rem;border-radius:6px;background:#f9fafb;border:1px solid var(--bd);margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center;">
-  <span><strong>Version:</strong> <span id="cur-app-ver">1.3.3</span></span>
+  <span><strong>Version:</strong> <span id="cur-app-ver">1.3.4</span></span>
   <span style="background:#ecfdf5;color:#065f46;border:1px solid #10b981;font-size:.75rem;padding:2px 8px;border-radius:12px;font-weight:700;">GitHub Live</span>
 </div>
 </div>
@@ -1352,7 +1367,7 @@ document.querySelectorAll(".mobile-nav-item").forEach(function(n){
 });
 var mSticky = document.getElementById("mobile-sticky-summary");
 if(mSticky){
-    if(id === "billing-view" && BM.items && BM.items.length > 0) mSticky.classList.add("visible");
+    if(window.innerWidth <= 768 && id === "billing-view" && BM.items && BM.items.length > 0) mSticky.classList.add("visible");
     else mSticky.classList.remove("visible");
 }
 var t={"dashboard-view":"Dashboard","billing-view":"GST Billing","invoices-view":"Invoice History","parties-view":"Parties","products-view":"Products","reports-view":"Reports","settings-view":"Settings"};
@@ -2360,7 +2375,7 @@ if (mCountEl) mCountEl.textContent = BM.items.length;
 var mBarEl = document.getElementById("mobile-sticky-summary");
 if (mBarEl) {
     var bView = document.getElementById("billing-view");
-    if (BM.items.length > 0 && bView && bView.classList.contains("active")) {
+    if (window.innerWidth <= 768 && BM.items.length > 0 && bView && bView.classList.contains("active")) {
         mBarEl.classList.add("visible");
     } else {
         mBarEl.classList.remove("visible");
@@ -3499,8 +3514,8 @@ var RTM = {
 
 /* ===== CLOUD AUTO-UPDATER UI ENGINE ===== */
 var UpdaterUI = {
-    currentVersion: '1.3.3',
-    build: 104,
+    currentVersion: '1.3.4',
+    build: 105,
     hasUpdate: false,
     latestInfo: null,
 
@@ -4102,7 +4117,7 @@ try {
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     window.addEventListener('load', function() {
-        navigator.serviceWorker.register('./sw.js?v=1.3.3').then(function(reg) {
+        navigator.serviceWorker.register('./sw.js?v=1.3.4').then(function(reg) {
             reg.update();
             reg.addEventListener('updatefound', function() {
                 var newWorker = reg.installing;
@@ -4125,6 +4140,19 @@ window.addEventListener('online', function() {
 });
 window.addEventListener('offline', function() {
     U.toast("Working offline. Invoices safely preserved locally.", "info");
+});
+window.addEventListener('resize', function() {
+    var mBarEl = document.getElementById("mobile-sticky-summary");
+    if (mBarEl) {
+        if (window.innerWidth > 768) {
+            mBarEl.classList.remove("visible");
+        } else {
+            var bView = document.getElementById("billing-view");
+            if (typeof BM !== 'undefined' && BM.items && BM.items.length > 0 && bView && bView.classList.contains("active")) {
+                mBarEl.classList.add("visible");
+            }
+        }
+    }
 });
 </script>
 </body>
