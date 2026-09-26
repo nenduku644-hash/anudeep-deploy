@@ -252,66 +252,95 @@ function broadcastRealtime(eventType, payload) {
 let qrCodeDataUrl = null;
 let isWhatsappConnected = false;
 let client = null;
+let whatsappUserInfo = null;
+let isWhatsappInitializing = false;
 
-try {
-  const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-  console.log('Initializing WhatsApp Client in background...');
-  client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-      headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-extensions',
-        '--disable-dev-shm-usage',
-        '--disable-gpu'
-      ]
-    }
-  });
+function initWhatsappClient() {
+  if (isWhatsappInitializing) {
+    console.log('[WhatsApp] Initialization already in progress, skipping duplicate init.');
+    return;
+  }
+  isWhatsappInitializing = true;
+  try {
+    const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+    console.log('[WhatsApp] Initializing WhatsApp Client in background...');
+    client = new Client({
+      authStrategy: new LocalAuth(),
+      puppeteer: {
+        headless: true,
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-extensions',
+          '--disable-dev-shm-usage',
+          '--disable-gpu'
+        ]
+      }
+    });
 
-  client.on('qr', async (qr) => {
-    console.log('WhatsApp QR Code received.');
-    isWhatsappConnected = false;
-    try {
-      qrCodeDataUrl = await qrcode.toDataURL(qr);
-      broadcastRealtime('whatsapp_status', { connected: false, status: 'qr_ready', qr: qrCodeDataUrl });
-    } catch (err) {
-      console.error('Failed to generate QR Data URL', err);
-    }
-  });
+    client.on('qr', async (qr) => {
+      console.log('[WhatsApp] QR Code received.');
+      isWhatsappConnected = false;
+      whatsappUserInfo = null;
+      isWhatsappInitializing = false;
+      try {
+        qrCodeDataUrl = await qrcode.toDataURL(qr);
+        broadcastRealtime('whatsapp_status', { connected: false, status: 'qr_ready', qr: qrCodeDataUrl });
+      } catch (err) {
+        console.error('[WhatsApp] Failed to generate QR Data URL', err);
+      }
+    });
 
-  client.on('ready', () => {
-    console.log('⚡ WhatsApp Client is ready!');
-    isWhatsappConnected = true;
-    qrCodeDataUrl = null;
-    broadcastRealtime('whatsapp_status', { connected: true, status: 'ready' });
-  });
+    client.on('ready', () => {
+      console.log('⚡ [WhatsApp] Client is ready and connected!');
+      isWhatsappConnected = true;
+      qrCodeDataUrl = null;
+      isWhatsappInitializing = false;
+      try {
+        whatsappUserInfo = {
+          phone: (client.info && client.info.wid && client.info.wid.user) ? client.info.wid.user : '',
+          name: (client.info && client.info.pushname) ? client.info.pushname : ''
+        };
+      } catch (e) {
+        whatsappUserInfo = null;
+      }
+      broadcastRealtime('whatsapp_status', { connected: true, status: 'ready', user: whatsappUserInfo });
+    });
 
-  client.on('authenticated', () => {
-    console.log('WhatsApp Authenticated!');
-  });
+    client.on('authenticated', () => {
+      console.log('[WhatsApp] Authenticated successfully!');
+    });
 
-  client.on('auth_failure', msg => {
-    console.error('WhatsApp Authentication failure', msg);
-    isWhatsappConnected = false;
-    broadcastRealtime('whatsapp_status', { connected: false, status: 'auth_failure' });
-  });
+    client.on('auth_failure', msg => {
+      console.error('[WhatsApp] Authentication failure', msg);
+      isWhatsappConnected = false;
+      whatsappUserInfo = null;
+      isWhatsappInitializing = false;
+      broadcastRealtime('whatsapp_status', { connected: false, status: 'auth_failure' });
+    });
 
-  client.on('disconnected', (reason) => {
-    console.log('WhatsApp Client disconnected', reason);
-    isWhatsappConnected = false;
-    broadcastRealtime('whatsapp_status', { connected: false, status: 'disconnected', reason });
-    client.initialize().catch(e => console.warn('WA re-init error:', e.message));
-  });
+    client.on('disconnected', (reason) => {
+      console.log('[WhatsApp] Client disconnected', reason);
+      isWhatsappConnected = false;
+      whatsappUserInfo = null;
+      qrCodeDataUrl = null;
+      isWhatsappInitializing = false;
+      broadcastRealtime('whatsapp_status', { connected: false, status: 'disconnected', reason });
+    });
 
-  client.initialize().catch(e => {
-    console.warn('WhatsApp initial launch warning (Puppeteer may be missing or busy):', e.message);
-  });
-} catch (e) {
-  console.warn('WhatsApp client module error:', e.message);
+    client.initialize().catch(e => {
+      isWhatsappInitializing = false;
+      console.warn('[WhatsApp] Initial launch warning (Puppeteer may be missing or busy):', e.message);
+    });
+  } catch (e) {
+    isWhatsappInitializing = false;
+    console.warn('[WhatsApp] Client module error:', e.message);
+  }
 }
+
+// Initial auto-start
+initWhatsappClient();
 
 // ==========================================
 // 4. HIGH-SPEED API ENDPOINTS
@@ -1061,8 +1090,74 @@ app.put('/api/settings', async (req, res) => {
 app.get('/api/whatsapp/status', (req, res) => {
   res.json({
     connected: isWhatsappConnected,
-    qr: qrCodeDataUrl
+    qr: qrCodeDataUrl,
+    user: whatsappUserInfo,
+    status: isWhatsappConnected ? 'connected' : (qrCodeDataUrl ? 'qr_ready' : (isWhatsappInitializing ? 'initializing' : 'disconnected'))
   });
+});
+
+app.post('/api/whatsapp/login', async (req, res) => {
+  try {
+    if (isWhatsappConnected) {
+      return res.json({ success: true, message: 'Already connected', connected: true, user: whatsappUserInfo });
+    }
+    if (client) {
+      try { await client.destroy(); } catch(e){}
+      client = null;
+    }
+    isWhatsappInitializing = false;
+    initWhatsappClient();
+    res.json({ success: true, message: 'WhatsApp client initializing. QR code will appear shortly.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to initialize WhatsApp: ' + err.message });
+  }
+});
+
+app.post('/api/whatsapp/logout', async (req, res) => {
+  try {
+    console.log('[WhatsApp] Logout requested by user...');
+    if (client) {
+      if (isWhatsappConnected) {
+        try {
+          await client.logout();
+        } catch (e) {
+          console.warn('[WhatsApp] client.logout warn:', e.message);
+        }
+      }
+      try {
+        await client.destroy();
+      } catch (e) {
+        console.warn('[WhatsApp] client.destroy warn:', e.message);
+      }
+      client = null;
+    }
+    isWhatsappConnected = false;
+    qrCodeDataUrl = null;
+    whatsappUserInfo = null;
+    isWhatsappInitializing = false;
+
+    // Clean up cached auth session directory so device is fully unlinked
+    const authDir = path.join(__dirname, '.wwebjs_auth');
+    try {
+      if (fs.existsSync(authDir)) {
+        fs.rmSync(authDir, { recursive: true, force: true });
+      }
+    } catch(rmErr) {
+      console.warn('[WhatsApp] Auth session cleanup warning:', rmErr.message);
+    }
+
+    broadcastRealtime('whatsapp_status', { connected: false, status: 'logged_out' });
+
+    // Automatically reinitialize client so a fresh QR code is produced for login
+    setTimeout(() => {
+      initWhatsappClient();
+    }, 1000);
+
+    res.json({ success: true, message: 'Logged out successfully. Generating new login QR code.' });
+  } catch (err) {
+    console.error('[WhatsApp] Logout endpoint error:', err);
+    res.status(500).json({ error: 'Failed to logout from WhatsApp: ' + err.message });
+  }
 });
 
 

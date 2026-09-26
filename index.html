@@ -525,7 +525,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
     <a class="nav-item" data-target="parties-view"><i class="ph ph-address-book"></i> Parties</a>
     <a class="nav-item" data-target="reports-view"><i class="ph ph-chart-line"></i> Reports</a>
     <a class="nav-item" data-target="settings-view"><i class="ph ph-gear-six"></i> Settings</a>
-    <a class="nav-item" onclick="openWhatsappModal()"><i class="ph ph-whatsapp-logo"></i> WhatsApp Status</a>
+    <a class="nav-item" id="nav-wa-item" onclick="openWhatsappModal()" style="display:flex;align-items:center;justify-content:space-between;"><span style="display:flex;align-items:center;gap:.65rem;"><i class="ph ph-whatsapp-logo" style="color:#25D366;"></i> WhatsApp Status</span><span id="wa-nav-dot" style="width:8px;height:8px;border-radius:50%;background:#9ca3af;display:inline-block;transition:background .3s;" title="WhatsApp Status"></span></a>
   </div>
   <div class="user-profile">
     <div>
@@ -541,7 +541,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
   <h2 id="page-title">Dashboard</h2>
   <div style="display:flex;align-items:center;gap:.75rem">
     <div id="cloud-update-badge" style="font-size:.78rem;font-weight:600;padding:.3rem .65rem;border-radius:2rem;background:#f0fdf4;border:1px solid #86efac;display:none;align-items:center;gap:.35rem;color:#166534;cursor:pointer" onclick="UI.show('settings-view')" title="Cloud Auto-Updater Active - Click to view">
-      <i class="ph ph-sparkle" style="color:#16a34a"></i> <span id="cloud-update-text">v1.3.1</span>
+      <i class="ph ph-sparkle" style="color:#16a34a"></i> <span id="cloud-update-text">v1.3.2</span>
     </div>
     <div id="db-sync-badge" style="font-size:.78rem;font-weight:600;padding:.3rem .65rem;border-radius:2rem;background:#f3f4f6;border:1px solid #e5e7eb;display:inline-flex;align-items:center;gap:.35rem;color:#4b5563;cursor:pointer" onclick="App.load()" title="Click to refresh data">
       <i class="ph ph-lightning" style="color:#10b981"></i> <span>Connecting...</span>
@@ -771,7 +771,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 <div class="form-group">
 <label>Application Version</label>
 <div id="updater-ver-display" style="font-size:.85rem;padding:.5rem;border-radius:6px;background:#f9fafb;border:1px solid var(--bd);margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center;">
-  <span><strong>Version:</strong> <span id="cur-app-ver">1.3.1</span></span>
+  <span><strong>Version:</strong> <span id="cur-app-ver">1.3.2</span></span>
   <span style="background:#ecfdf5;color:#065f46;border:1px solid #10b981;font-size:.75rem;padding:2px 8px;border-radius:12px;font-weight:700;">GitHub Live</span>
 </div>
 </div>
@@ -1591,7 +1591,7 @@ var igstVal = inv.igstAmount !== undefined ? inv.igstAmount : parseFloat(((inv.t
 lines.push(("ADD CGST @ "+CR+"%:").padEnd(55)+U.fm(cgstVal).padEnd(12));
 lines.push(("ADD SGST @ "+SR+"%:").padEnd(55)+U.fm(sgstVal).padEnd(12));
 lines.push(("ADD IGST @ "+IR+"%:").padEnd(55)+U.fm(igstVal).padEnd(12));
-lines.push(("TOTAL GST (10%):").padEnd(55)+U.fm(cgstVal + sgstVal + igstVal).padEnd(12));
+lines.push(("TOTAL GST:").padEnd(55)+U.fm(cgstVal + sgstVal + igstVal).padEnd(12));
 var pRo = inv.roundOff !== undefined ? inv.roundOff : (inv.totalAmount - (inv.rawGrandTotal || inv.totalAmount));
 var pRoSign = pRo >= 0 ? "+" : "-";
 lines.push(("Round Off: (" + pRoSign + ")").padEnd(55)+U.fm(Math.abs(pRo)).padEnd(12));
@@ -1655,7 +1655,7 @@ generatePrintHTML:function(inv){
     taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>ADD CGST ('+CR+'%)</span><span style="color:#000;">'+U.fm(cgstAmt)+'</span></div>';
     taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>ADD SGST ('+SR+'%)</span><span style="color:#000;">'+U.fm(sgstAmt)+'</span></div>';
     taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>ADD IGST ('+IR+'%)</span><span style="color:#000;">'+U.fm(igstAmt)+'</span></div>';
-    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px; font-weight:bold;"><span>Total GST (10%)</span><span style="color:#000;">'+U.fm(cgstAmt + sgstAmt + igstAmt)+'</span></div>';
+    taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px; font-weight:bold;"><span>Total GST</span><span style="color:#000;">'+U.fm(cgstAmt + sgstAmt + igstAmt)+'</span></div>';
     taxRows+='<div style="display:flex; justify-content:space-between; border-bottom:1px dashed #1a237e; padding:3px 8px;"><span>Round Off</span><span style="color:#000;">'+roStr+'</span></div>';
 
     function getSt(c){
@@ -1688,7 +1688,7 @@ generatePrintHTML:function(inv){
                     '<div style="border:2px solid #1a237e; color:#1a237e !important; background:#fff; padding:6px 20px; display:inline-block; border-radius:4px; line-height:1.2; font-size:13pt; font-weight:900; letter-spacing:0.5px; -webkit-print-color-adjust:exact; print-color-adjust:exact;">TAX INVOICE<br><span style="font-size:7.5pt; font-weight:bold; color:#1a237e;">CASH / CREDIT</span></div>'+
                 '</td>'+
                 '<td style="padding:4px 10px; width:33%; text-align:right; vertical-align:middle;">'+
-                    '<div style="color:#1a237e !important; text-align:right; font-family:\'Times New Roman\', serif; font-size:24pt; font-weight:900; letter-spacing:6px; padding-right:10px; -webkit-print-color-adjust:exact; print-color-adjust:exact;">AKB</div>'+
+                    '<div style="text-align:right; padding-right:6px;"><img src="logo.jpeg" style="max-height:46px; max-width:130px; object-fit:contain; vertical-align:middle; display:inline-block; -webkit-print-color-adjust:exact; print-color-adjust:exact;" alt="Logo" onerror="this.style.display=\'none\'"></div>'+
                 '</td>'+
             '</tr>'+
         '</table>'+
@@ -1854,11 +1854,7 @@ generatePrintHTML:function(inv){
         if (!cleanPhone) cleanPhone = '919441753678';
 
         var invNo = U.pi(inv.invoiceNo);
-        var waApiBase = (API_URL && !API_URL.includes("script.google.com")) 
-            ? API_URL 
-            : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io") && !location.origin.includes("vercel.app")) 
-                ? (location.origin + '/api') 
-                : 'http://localhost:3000/api');
+        var waApiBase = (typeof getWaApiUrl === 'function') ? getWaApiUrl() : ((API_URL && !API_URL.includes("script.google.com")) ? API_URL : 'http://localhost:3000/api');
 
         var custName = (inv.receiver && inv.receiver.name) || (inv.consignee && inv.consignee.name) || "Customer";
         var totalAmt = U.fm(inv.totalAmount);
@@ -2342,7 +2338,7 @@ h += '<div class="tax-box">';
 h += '<div class="sum-row"><span>ADD CGST @ '+CR+'%</span><span>'+U.fm(cgst)+'</span></div>';
 h += '<div class="sum-row"><span>ADD SGST @ '+SR+'%</span><span>'+U.fm(sgst)+'</span></div>';
 h += '<div class="sum-row"><span>ADD IGST @ '+IR+'%</span><span>'+U.fm(igst)+'</span></div>';
-h += '<div class="sum-row" style="border-top:1px dashed #cbd5e1; margin-top:4px; padding-top:4px; font-weight:600; color:var(--p)"><span>Total GST (10%)</span><span>'+U.fm(cgst + sgst + igst)+'</span></div>';
+h += '<div class="sum-row" style="border-top:1px dashed #cbd5e1; margin-top:4px; padding-top:4px; font-weight:600; color:var(--p)"><span>Total GST</span><span>'+U.fm(cgst + sgst + igst)+'</span></div>';
 h += '</div>';
 // Round Off
 h += '<div class="sum-row" style="font-size:.82rem; color:var(--tl);"><span>Round Off</span><span>'+formattedRoundOff+'</span></div>';
@@ -3441,23 +3437,20 @@ var RTM = {
             }
             DM.render();
         } else if (type === 'whatsapp_status') {
-            var waText = document.getElementById("wa-status-text");
-            var waQr = document.getElementById("wa-qr-img");
-            if (data.connected) {
-                if (waText) {
-                    waText.innerText = "Connected to WhatsApp!";
-                    waText.style.color = "green";
+            _waStatusState = data;
+            if (typeof renderWhatsappModal === 'function') {
+                if (data.connected) {
+                    renderWhatsappModal("connected", data);
+                } else if (data.qr) {
+                    renderWhatsappModal("qr", data);
+                } else if (data.status === 'initializing') {
+                    renderWhatsappModal("loading", { message: "Starting WhatsApp client..." });
+                } else {
+                    renderWhatsappModal("offline", null);
                 }
-                if (waQr) waQr.style.display = "none";
-            } else if (data.qr) {
-                if (waText) {
-                    waText.innerText = "Scan this QR code with WhatsApp:";
-                    waText.style.color = "orange";
-                }
-                if (waQr) {
-                    waQr.src = data.qr;
-                    waQr.style.display = "block";
-                }
+            }
+            if (typeof updateWhatsappSidebarDot === 'function') {
+                updateWhatsappSidebarDot(!!data.connected, !!data.qr);
             }
         } else if (type === 'app_updated') {
             RTM.playChime();
@@ -3506,8 +3499,8 @@ var RTM = {
 
 /* ===== CLOUD AUTO-UPDATER UI ENGINE ===== */
 var UpdaterUI = {
-    currentVersion: '1.3.1',
-    build: 101,
+    currentVersion: '1.3.2',
+    build: 103,
     hasUpdate: false,
     latestInfo: null,
 
@@ -3776,50 +3769,279 @@ window.addEventListener('load', function(){
 });
 </script>
 
-<!-- WhatsApp Modal -->
-<div class="modal-overlay" id="whatsapp-modal" onclick="if(event.target===this) this.classList.remove('active')">
-    <div class="modal" style="text-align: center; max-width: 350px;">
-        <div class="modal-title"><i class="ph ph-whatsapp-logo" style="color: #25D366;"></i> WhatsApp Login</div>
-        <div id="wa-status-text" style="margin-bottom: 15px; font-weight: bold; color: var(--tl);">Checking status...</div>
-        <img id="wa-qr-img" src="" style="width: 200px; height: 200px; display: none; margin: 0 auto; border: 1px solid #ccc; border-radius: 8px;" />
-        <div style="margin-top: 20px;">
-            <button class="btn btn-secondary" onclick="document.getElementById('whatsapp-modal').classList.remove('active')">Close</button>
-            <button class="btn btn-primary" onclick="fetchWhatsappStatus()">Refresh</button>
+<!-- WhatsApp Management Modal -->
+<div class="modal-overlay" id="whatsapp-modal" onclick="if(event.target===this) closeWhatsappModal()">
+    <div class="modal" style="text-align: center; max-width: 440px; padding: 22px 20px; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.18);">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--bd); padding-bottom:12px; margin-bottom:16px;">
+            <div style="display:flex; align-items:center; gap:8px; font-weight:800; font-size:1.15rem; color:var(--fg);">
+                <i class="ph ph-whatsapp-logo" style="color:#25D366; font-size:1.5rem;"></i> WhatsApp Integration
+            </div>
+            <button class="btn-icon" onclick="closeWhatsappModal()" style="border:none; background:transparent; font-size:1.25rem; color:var(--tl); cursor:pointer;" title="Close">&times;</button>
+        </div>
+        <div id="wa-modal-body">
+            <!-- Dynamic State View injected by renderWhatsappModal() -->
         </div>
     </div>
 </div>
 <script>
-async function fetchWhatsappStatus() {
-    var txt = document.getElementById("wa-status-text");
-    var img = document.getElementById("wa-qr-img");
-    txt.innerHTML = "Checking status...";
-    img.style.display = "none";
-    try {
-        var waStatusUrl = (API_URL && !API_URL.includes("script.google.com")) 
-            ? (API_URL + '/whatsapp/status') 
-            : ((location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io") && !location.origin.includes("vercel.app")) 
-                ? (location.origin + '/api/whatsapp/status') 
-                : 'http://localhost:3000/api/whatsapp/status');
+var _waStatusState = null;
+var _waPollInterval = null;
 
-        var res = await originalFetch(waStatusUrl, { method: 'GET' });
-        var data = await res.json();
-        if (data.connected) {
-            txt.innerHTML = "<span style='color:green;'>Connected & Ready to Send!</span>";
-        } else if (data.qr) {
-            txt.innerHTML = "Scan QR Code to login:";
-            img.src = data.qr;
-            img.style.display = "block";
-        } else {
-            txt.innerHTML = "Starting WhatsApp service... Please refresh in a few seconds.";
-        }
-    } catch(e) {
-        txt.innerHTML = "Note: WhatsApp automated bot is offline. You can still use the <strong>'Direct WhatsApp Chat'</strong> button on any invoice to send via WhatsApp Web/App!";
+function getWaApiUrl() {
+    var custom = localStorage.getItem("akb_wa_server_url");
+    if (custom && custom.trim()) return custom.trim().replace(/\/+$/, '');
+    if (API_URL && !API_URL.includes("script.google.com")) {
+        return API_URL.replace(/\/+$/, '');
+    }
+    if (location.origin && location.origin.startsWith("http") && !location.origin.includes("github.io") && !location.origin.includes("vercel.app")) {
+        return (location.origin + '/api').replace(/\/+$/, '');
+    }
+    return 'http://localhost:3000/api';
+}
+
+function updateWhatsappSidebarDot(connected, hasQr) {
+    var dot = document.getElementById("wa-nav-dot");
+    if (!dot) return;
+    if (connected) {
+        dot.style.background = "#10b981";
+        dot.title = "WhatsApp: Connected";
+    } else if (hasQr) {
+        dot.style.background = "#f59e0b";
+        dot.title = "WhatsApp: Ready to Link (Scan QR)";
+    } else {
+        dot.style.background = "#9ca3af";
+        dot.title = "WhatsApp: Offline";
     }
 }
-function openWhatsappModal() {
-    document.getElementById('whatsapp-modal').classList.add('active');
-    fetchWhatsappStatus();
+
+function renderWhatsappModal(state, data) {
+    var container = document.getElementById("wa-modal-body");
+    if (!container) return;
+
+    if (state === "connected") {
+        updateWhatsappSidebarDot(true, false);
+        var phone = (data && data.user && data.user.phone) ? ('+' + data.user.phone) : 'Connected Account';
+        var name = (data && data.user && data.user.name) ? data.user.name : 'Anudeep Khadi Bandar';
+
+        container.innerHTML = 
+            '<div style="text-align:center; padding:6px 0;">' +
+                '<div style="display:inline-flex; align-items:center; gap:8px; background:#ecfdf5; border:1px solid #10b981; color:#065f46; font-size:0.95rem; font-weight:700; padding:8px 18px; border-radius:30px; margin-bottom:16px;">' +
+                    '<i class="ph ph-check-circle" style="font-size:1.3rem; color:#10b981;"></i> WhatsApp is Connected' +
+                '</div>' +
+                '<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px; text-align:left; font-size:0.88rem; margin-bottom:16px;">' +
+                    '<div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:1px dashed #cbd5e1; padding-bottom:6px;">' +
+                        '<span style="color:var(--tl)">Device / Account:</span>' +
+                        '<span style="font-weight:700; color:var(--fg);">' + U.esc(name) + '</span>' +
+                    '</div>' +
+                    '<div style="display:flex; justify-content:space-between; margin-bottom:8px; border-bottom:1px dashed #cbd5e1; padding-bottom:6px;">' +
+                        '<span style="color:var(--tl)">WhatsApp No:</span>' +
+                        '<span style="font-weight:700; color:#059669;">' + U.esc(phone) + '</span>' +
+                    '</div>' +
+                    '<div style="display:flex; justify-content:space-between;">' +
+                        '<span style="color:var(--tl)">Auto Dispatch:</span>' +
+                        '<span style="font-weight:700; color:#16a34a;"><i class="ph ph-lightning"></i> Active (PDF & Text)</span>' +
+                    '</div>' +
+                '</div>' +
+                '<div style="font-size:0.8rem; color:var(--tl); margin-bottom:18px; line-height:1.4;">' +
+                    'Customer invoices and PDF receipts will be automatically delivered directly to their WhatsApp.' +
+                '</div>' +
+                '<div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">' +
+                    '<button class="btn btn-secondary" onclick="fetchWhatsappStatus(true)"><i class="ph ph-arrows-clockwise"></i> Refresh</button>' +
+                    '<a href="https://web.whatsapp.com" target="_blank" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;"><i class="ph ph-arrow-square-out"></i> WhatsApp Web</a>' +
+                    '<button class="btn" style="background:#dc2626; color:#fff; border:none; font-weight:600; display:inline-flex; align-items:center; gap:6px;" onclick="logoutWhatsapp()"><i class="ph ph-sign-out"></i> Log Out</button>' +
+                '</div>' +
+            '</div>';
+    } else if (state === "qr") {
+        updateWhatsappSidebarDot(false, true);
+        container.innerHTML = 
+            '<div style="text-align:center; padding:4px 0;">' +
+                '<div style="display:inline-flex; align-items:center; gap:6px; background:#fef3c7; border:1px solid #f59e0b; color:#92400e; font-size:0.85rem; font-weight:700; padding:6px 14px; border-radius:20px; margin-bottom:12px;">' +
+                    '<i class="ph ph-qr-code" style="font-size:1.15rem;"></i> Scan QR Code to Link WhatsApp' +
+                '</div>' +
+                '<div style="background:#fff; border:2px solid #25D366; border-radius:12px; padding:10px; width:220px; height:220px; margin:0 auto 12px; box-shadow:0 6px 16px rgba(0,0,0,0.06); display:flex; align-items:center; justify-content:center;">' +
+                    '<img src="' + data.qr + '" style="width:100%; height:100%; object-fit:contain; display:block;" alt="WhatsApp QR Code" />' +
+                '</div>' +
+                '<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 14px; text-align:left; font-size:0.82rem; margin-bottom:14px; color:var(--fg);">' +
+                    '<div style="font-weight:700; margin-bottom:4px; color:var(--p);"><i class="ph ph-device-mobile"></i> Instructions to Link:</div>' +
+                    '<ol style="margin:0; padding-left:18px; line-height:1.45;">' +
+                        '<li>Open <strong>WhatsApp</strong> on your phone</li>' +
+                        '<li>Tap <strong>Settings / Menu (⋮)</strong> &rarr; <strong>Linked Devices</strong></li>' +
+                        '<li>Tap <strong>Link a device</strong> and scan the QR code above</li>' +
+                    '</ol>' +
+                '</div>' +
+                '<div style="font-size:0.75rem; color:var(--tl); margin-bottom:14px;"><i class="ph ph-arrows-clockwise"></i> Checking connection automatically every 3s...</div>' +
+                '<div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">' +
+                    '<button class="btn btn-secondary" onclick="closeWhatsappModal()">Close</button>' +
+                    '<button class="btn btn-primary" onclick="loginWhatsapp()"><i class="ph ph-arrows-clockwise"></i> Refresh QR</button>' +
+                    '<a href="https://web.whatsapp.com" target="_blank" class="btn btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px;"><i class="ph ph-arrow-square-out"></i> WhatsApp Web</a>' +
+                '</div>' +
+            '</div>';
+    } else if (state === "loading") {
+        container.innerHTML = 
+            '<div style="text-align:center; padding:30px 15px;">' +
+                '<div class="spinner" style="width:40px; height:40px; border:3px solid #e2e8f0; border-top:3px solid #25D366; border-radius:50%; margin:0 auto 16px; animation:spin 0.8s linear infinite;"></div>' +
+                '<div style="font-weight:700; color:var(--fg); margin-bottom:6px;">' + (data && data.message ? data.message : 'Connecting to WhatsApp...') + '</div>' +
+                '<div style="font-size:0.82rem; color:var(--tl);">Generating login QR code, please wait a moment.</div>' +
+            '</div>';
+    } else {
+        // Offline / Cloud view
+        updateWhatsappSidebarDot(false, false);
+        var currentUrl = getWaApiUrl();
+        var isHttps = location.protocol === 'https:';
+        var mixedContentNote = (isHttps && currentUrl.startsWith('http://'))
+            ? '<div style="background:#fffbeb; border:1px solid #fef3c7; color:#92400e; font-size:0.78rem; padding:8px 10px; border-radius:6px; margin:10px 0; text-align:left; line-height:1.4;">' +
+              '<strong><i class="ph ph-info"></i> Security Note:</strong> You are browsing via secure HTTPS. Browser security restricts HTTPS sites from calling local HTTP endpoints directly. You can use the Desktop App (AKB-Billing.exe) or WhatsApp Web link below.' +
+              '</div>'
+            : '';
+
+        container.innerHTML = 
+            '<div style="text-align:center; padding:6px 0;">' +
+                '<div style="display:inline-flex; align-items:center; gap:6px; background:#fef2f2; border:1px solid #f87171; color:#991b1b; font-size:0.85rem; font-weight:700; padding:6px 14px; border-radius:20px; margin-bottom:12px;">' +
+                    '<i class="ph ph-warning-circle" style="font-size:1.15rem;"></i> WhatsApp Bot is Offline' +
+                '</div>' +
+                '<p style="font-size:0.84rem; color:var(--tl); margin:0 0 12px; line-height:1.4;">' +
+                    'The automated bot runs via the desktop app or local Node backend. You can still login to WhatsApp Web or use direct chat anytime!' +
+                '</p>' +
+                mixedContentNote +
+                '<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:14px; text-align:left;">' +
+                    '<div style="font-size:0.82rem; font-weight:700; margin-bottom:6px; color:var(--fg);">WhatsApp Bot Server URL:</div>' +
+                    '<div style="display:flex; gap:6px;">' +
+                        '<input type="text" id="wa-custom-url-input" value="' + U.esc(currentUrl) + '" placeholder="http://localhost:3000/api" style="flex:1; padding:6px 8px; font-size:0.82rem; border:1px solid var(--bd); border-radius:6px;" />' +
+                        '<button class="btn btn-secondary" onclick="saveWaServerUrl()" style="padding:6px 12px; font-size:0.82rem;">Save</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">' +
+                    '<a href="https://web.whatsapp.com" target="_blank" class="btn btn-primary" style="background:#25D366; border-color:#25D366; text-decoration:none; display:inline-flex; align-items:center; gap:6px;"><i class="ph ph-whatsapp-logo"></i> Open WhatsApp Web</a>' +
+                    '<button class="btn btn-secondary" onclick="loginWhatsapp()"><i class="ph ph-plug"></i> Start / Reconnect</button>' +
+                    '<button class="btn btn-secondary" onclick="closeWhatsappModal()">Close</button>' +
+                '</div>' +
+            '</div>';
+    }
 }
+
+async function fetchWhatsappStatus(showToast) {
+    try {
+        var base = getWaApiUrl();
+        var ctrl = new AbortController();
+        var timer = setTimeout(function(){ ctrl.abort(); }, 4000);
+        var res = await originalFetch(base + '/whatsapp/status', { signal: ctrl.signal });
+        clearTimeout(timer);
+        var data = await res.json();
+        _waStatusState = data;
+        if (data.connected) {
+            renderWhatsappModal("connected", data);
+            if (showToast) U.toast("WhatsApp is connected & active", "success");
+        } else if (data.qr) {
+            renderWhatsappModal("qr", data);
+            if (showToast) U.toast("Please scan the QR code to log in", "info");
+        } else {
+            renderWhatsappModal("loading", { message: "Starting WhatsApp Bot engine..." });
+        }
+    } catch(err) {
+        _waStatusState = { connected: false, offline: true };
+        renderWhatsappModal("offline", null);
+        if (showToast) U.toast("WhatsApp Bot is currently offline", "warning");
+    }
+}
+
+async function loginWhatsapp() {
+    renderWhatsappModal("loading", { message: "Initializing WhatsApp login..." });
+    try {
+        var base = getWaApiUrl();
+        var res = await originalFetch(base + '/whatsapp/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        var data = await res.json();
+        if (data && data.connected) {
+            renderWhatsappModal("connected", data);
+            U.toast("Already connected to WhatsApp!", "success");
+            return;
+        }
+        setTimeout(function() {
+            fetchWhatsappStatus(false);
+        }, 1500);
+    } catch(err) {
+        fetchWhatsappStatus(false);
+    }
+}
+
+async function logoutWhatsapp() {
+    if (!confirm("Are you sure you want to log out of WhatsApp? This will disconnect the bot and generate a new login QR code.")) {
+        return;
+    }
+    renderWhatsappModal("loading", { message: "Logging out of WhatsApp..." });
+    try {
+        var base = getWaApiUrl();
+        var res = await originalFetch(base + '/whatsapp/logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        var data = await res.json();
+        U.toast(data.message || "Logged out of WhatsApp successfully", "info");
+        setTimeout(function() {
+            fetchWhatsappStatus(false);
+        }, 1200);
+    } catch(err) {
+        U.toast("Logout failed: " + err.message, "error");
+        fetchWhatsappStatus(false);
+    }
+}
+
+function saveWaServerUrl() {
+    var inp = document.getElementById("wa-custom-url-input");
+    if (!inp) return;
+    var val = inp.value.trim();
+    if (val) {
+        localStorage.setItem("akb_wa_server_url", val);
+        U.toast("Bot Server URL updated!", "success");
+    } else {
+        localStorage.removeItem("akb_wa_server_url");
+        U.toast("Reset to default server URL", "info");
+    }
+    fetchWhatsappStatus(true);
+}
+
+function openWhatsappModal() {
+    var modal = document.getElementById('whatsapp-modal');
+    if (modal) modal.classList.add('active');
+    renderWhatsappModal("loading", { message: "Checking WhatsApp status..." });
+    fetchWhatsappStatus(false);
+    if (_waPollInterval) clearInterval(_waPollInterval);
+    _waPollInterval = setInterval(function() {
+        var m = document.getElementById('whatsapp-modal');
+        if (!m || !m.classList.contains('active')) {
+            clearInterval(_waPollInterval);
+            _waPollInterval = null;
+            return;
+        }
+        if (_waStatusState && _waStatusState.connected) {
+            return;
+        }
+        fetchWhatsappStatus(false);
+    }, 3000);
+}
+
+function closeWhatsappModal() {
+    var modal = document.getElementById('whatsapp-modal');
+    if (modal) modal.classList.remove('active');
+    if (_waPollInterval) {
+        clearInterval(_waPollInterval);
+        _waPollInterval = null;
+    }
+}
+
+// Background initial status check
+setTimeout(function() {
+    try {
+        var base = getWaApiUrl();
+        originalFetch(base + '/whatsapp/status').then(function(r){ return r.json(); }).then(function(d){
+            if (d && d.connected) updateWhatsappSidebarDot(true, false);
+            else if (d && d.qr) updateWhatsappSidebarDot(false, true);
+        }).catch(function(){});
+    } catch(e){}
+}, 2000);
+</script>
 
 /* ===== POS WORKSTATION SHORTCUTS & HIGH-USAGE ENGINE ===== */
 window.addEventListener('keydown', function(e) {
