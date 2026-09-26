@@ -23,23 +23,35 @@ function startBackend() {
     return new Promise((resolve) => {
         try {
             console.log('[Electron] Starting background Node backend...');
-            serverChild = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
-                cwd: __dirname,
-                env: { ...process.env, PORT: '3000', ELECTRON_RUN_AS_NODE: '1' },
-                stdio: 'ignore'
-            });
+            const nodeExe = process.platform === 'win32' ? 'node.exe' : 'node';
+            
+            try {
+                serverChild = spawn(nodeExe, [path.join(__dirname, 'server.js')], {
+                    cwd: __dirname,
+                    env: { ...process.env, PORT: '3000' },
+                    stdio: 'ignore',
+                    windowsHide: true
+                });
+            } catch (err) {
+                serverChild = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
+                    cwd: __dirname,
+                    env: { ...process.env, PORT: '3000', ELECTRON_RUN_AS_NODE: '1' },
+                    stdio: 'ignore'
+                });
+            }
 
-            serverChild.on('error', (err) => {
-                console.warn('[Electron] Failed to start backend process:', err);
-                resolve(false);
-            });
+            if (serverChild) {
+                serverChild.on('error', (err) => {
+                    console.warn('[Electron] Failed to start backend process:', err);
+                });
+            }
 
-            // Poll for server readiness up to 4 seconds
+            // Poll for server readiness up to 8 seconds
             let attempts = 0;
             const interval = setInterval(async () => {
                 attempts++;
                 const ready = await checkServer('http://localhost:3000/api/health', 500);
-                if (ready || attempts > 8) {
+                if (ready || attempts > 16) {
                     clearInterval(interval);
                     resolve(ready);
                 }

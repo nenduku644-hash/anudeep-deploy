@@ -92,7 +92,7 @@ async function fetchWithRetry(url, options, retries = 3, timeoutMs = 20000) {
 let isDbConnected = false;
 
 mongoose.connect(MONGO_URI, {
-  serverSelectionTimeoutMS: 3000,
+  serverSelectionTimeoutMS: 1000,
   socketTimeoutMS: 30000,
   maxPoolSize: 50,
   minPoolSize: 5,
@@ -339,8 +339,10 @@ function initWhatsappClient() {
   }
 }
 
-// Initial auto-start
-initWhatsappClient();
+// Initial auto-start asynchronously in background
+setImmediate(() => {
+  initWhatsappClient();
+});
 
 // ==========================================
 // 4. HIGH-SPEED API ENDPOINTS

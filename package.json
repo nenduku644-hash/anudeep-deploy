@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "app": "powershell -WindowStyle Hidden -Command \"Start-Process .\\AKB-Billing.exe\"",
-    "build:exe": "powershell -ExecutionPolicy Bypass -Command \"& 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe' /target:winexe /out:AKB-Billing.exe /win32icon:icon.ico /r:System.Windows.Forms.dll,System.Drawing.dll,System.dll Launcher.cs\""
+    "electron": "electron electron-main.js",
+    "build:exe": "powershell -ExecutionPolicy Bypass -Command \"& 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe' /target:winexe /out:AKB-Billing.exe /win32icon:icon.ico /r:System.Windows.Forms.dll,System.Drawing.dll,System.dll Launcher.cs\"",
+    "setup:shortcut": "powershell -ExecutionPolicy Bypass -File .\\create-desktop-shortcut.ps1"
   },
   "dependencies": {
     "cors": "^2.8.6",
