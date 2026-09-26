@@ -556,7 +556,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
   <h2 id="page-title">Dashboard</h2>
   <div style="display:flex;align-items:center;gap:.75rem">
     <div id="cloud-update-badge" style="font-size:.78rem;font-weight:600;padding:.3rem .65rem;border-radius:2rem;background:#f0fdf4;border:1px solid #86efac;display:none;align-items:center;gap:.35rem;color:#166534;cursor:pointer" onclick="UI.show('settings-view')" title="Cloud Auto-Updater Active - Click to view">
-      <i class="ph ph-sparkle" style="color:#16a34a"></i> <span id="cloud-update-text">v1.3.5</span>
+      <i class="ph ph-sparkle" style="color:#16a34a"></i> <span id="cloud-update-text">v1.3.6</span>
     </div>
     <div id="db-sync-badge" style="font-size:.78rem;font-weight:600;padding:.3rem .65rem;border-radius:2rem;background:#f3f4f6;border:1px solid #e5e7eb;display:inline-flex;align-items:center;gap:.35rem;color:#4b5563;cursor:pointer" onclick="App.load()" title="Click to refresh data">
       <i class="ph ph-lightning" style="color:#10b981"></i> <span>Connecting...</span>
@@ -786,7 +786,7 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 <div class="form-group">
 <label>Application Version</label>
 <div id="updater-ver-display" style="font-size:.85rem;padding:.5rem;border-radius:6px;background:#f9fafb;border:1px solid var(--bd);margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center;">
-  <span><strong>Version:</strong> <span id="cur-app-ver">1.3.5</span></span>
+  <span><strong>Version:</strong> <span id="cur-app-ver">1.3.6</span></span>
   <span style="background:#ecfdf5;color:#065f46;border:1px solid #10b981;font-size:.75rem;padding:2px 8px;border-radius:12px;font-weight:700;">GitHub Live</span>
 </div>
 </div>
@@ -875,54 +875,6 @@ header{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);padding:1rem 1
 </div>
 </div></div>
 
-<!-- Instant WhatsApp Delivery Modal -->
-<div id="instant-wa-modal" class="modal-overlay">
-  <div class="modal" style="max-width:440px; border-radius:1rem; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.35); padding:0;">
-    <div style="background:linear-gradient(135deg, #25D366, #128C7E); color:#fff; padding:1.2rem 1.5rem; text-align:center;">
-      <div style="font-size:2.4rem; line-height:1; margin-bottom:0.35rem;"><i class="ph ph-whatsapp-logo"></i></div>
-      <h3 style="font-size:1.25rem; font-weight:700; margin:0;" id="iwa-title">Instant WhatsApp Delivery</h3>
-      <p style="font-size:0.85rem; opacity:0.95; margin-top:0.25rem;" id="iwa-subtitle">Invoice generated • Ready to deliver</p>
-    </div>
-    <div style="padding:1.25rem;">
-      <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:0.5rem; padding:0.75rem 1rem; margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
-        <div>
-          <div style="font-size:0.75rem; color:#166534; font-weight:600;">Customer / Receiver</div>
-          <div style="font-weight:700; color:#14532d; font-size:0.95rem;" id="iwa-cust-name">-</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:0.75rem; color:#166534; font-weight:600;">Total Bill</div>
-          <div style="font-weight:800; color:#14532d; font-size:1.1rem;" id="iwa-total-amt">₹0.00</div>
-        </div>
-      </div>
-
-      <div class="form-group" style="margin-bottom:1rem;">
-        <label style="font-weight:600; font-size:0.85rem; display:block; margin-bottom:0.35rem; color:var(--td);">WhatsApp Number to Send:</label>
-        <div style="display:flex; gap:0.5rem;">
-          <input type="text" id="iwa-phone-input" placeholder="Enter 10-digit mobile or 91XXXXXXXXXX" style="font-size:1rem; font-weight:700; letter-spacing:0.5px; padding:0.6rem 0.75rem; border-color:#25D366;">
-        </div>
-        <div style="font-size:0.75rem; color:var(--tl); margin-top:0.35rem;">Pre-filled from billing form, or enter any mobile number.</div>
-      </div>
-
-      <div style="display:flex; flex-direction:column; gap:0.65rem;">
-        <button id="btn-iwa-send" class="btn btn-success w-full" style="padding:0.75rem; font-size:0.95rem; font-weight:700; background:#25D366; box-shadow:0 4px 14px rgba(37,211,102,0.4);" onclick="SM.executeInstantWhatsApp()">
-          <i class="ph ph-paper-plane-tilt" style="font-size:1.2rem;"></i> Open WhatsApp &amp; Send Now
-        </button>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
-          <button class="btn btn-secondary" style="font-size:0.8rem; padding:0.55rem; justify-content:center;" onclick="SM.sendToStoreOwnerWhatsApp()">
-            <i class="ph ph-storefront"></i> Store (9441753678)
-          </button>
-          <button class="btn btn-secondary" style="font-size:0.8rem; padding:0.55rem; justify-content:center;" onclick="SM.copyWhatsAppText()">
-            <i class="ph ph-copy"></i> Copy Message
-          </button>
-        </div>
-      </div>
-
-      <div style="margin-top:1rem; text-align:center;">
-        <button class="btn-tiny btn-secondary" style="color:var(--tl); font-weight:600; padding:0.35rem 1.2rem;" onclick="UI.cl('instant-wa-modal')">Done / Close</button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <div id="toast-container"></div>
 <div id="print-area"></div>
@@ -1980,80 +1932,67 @@ generatePrintHTML:function(inv){
         return true;
     },
 
-    promptInstantWhatsApp: function(inv, explicitPhone) {
+    autoSendWhatsapp: function(inv, explicitPhone) {
         if (!inv) return;
-        SM.currentInv = inv;
-
         var phone = explicitPhone || (inv.consignee && inv.consignee.phone) || (inv.receiver && inv.receiver.phone) || inv.customerPhone || "";
         var cleanPhone = phone ? phone.replace(/\D/g, '') : "";
         if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+        if (!cleanPhone) cleanPhone = '919441753678';
 
         var invNo = U.pi(inv.invoiceNo);
-        var custName = (inv.receiver && inv.receiver.name) || (inv.consignee && inv.consignee.name) || "Customer";
-        var totalAmt = U.fm(inv.totalAmount);
+        var textMsg = SM.formatWhatsAppText(inv);
 
-        var titleEl = document.getElementById("iwa-title");
-        if (titleEl) titleEl.textContent = "Send Invoice #" + invNo + " on WhatsApp";
-        var subEl = document.getElementById("iwa-subtitle");
-        if (subEl) subEl.textContent = "Invoice generated • Ready for instant delivery";
-        var nameEl = document.getElementById("iwa-cust-name");
-        if (nameEl) nameEl.textContent = custName;
-        var totalEl = document.getElementById("iwa-total-amt");
-        if (totalEl) totalEl.textContent = "₹" + totalAmt;
-        var phoneInput = document.getElementById("iwa-phone-input");
-        if (phoneInput) phoneInput.value = cleanPhone || "";
-
-        // 1. If valid phone number is present, instantly launch WhatsApp in new tab!
-        if (cleanPhone && cleanPhone.length >= 10) {
-            SM.openDirectWhatsapp(inv, cleanPhone);
+        // 1. Resolve WhatsApp API base URL
+        var waApiBase = (typeof getWaApiUrl === 'function') ? getWaApiUrl() : ((API_URL && !API_URL.includes("script.google.com")) ? API_URL : '');
+        if (!waApiBase && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+            waApiBase = 'http://localhost:3000/api';
+        }
+        if (!waApiBase && location.origin && location.origin.startsWith('http') && !location.origin.includes('github.io')) {
+            waApiBase = location.origin + '/api';
         }
 
-        // 2. Also attempt background bot silently
-        SM.tryBackgroundBot(inv, cleanPhone || '919441753678');
+        // 2. Headless background dispatch (ABSOLUTELY NO NEW TAB!)
+        if (waApiBase) {
+            fetch(waApiBase + '/whatsapp/sendMessage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: cleanPhone, message: textMsg })
+            }).then(function(r){ return r.json(); }).then(function(d){
+                if (d && d.success) {
+                    U.toast("📱 WhatsApp: Invoice #" + invNo + " delivered automatically to " + cleanPhone, "success");
+                }
+            }).catch(function(){});
 
-        // 3. Open Instant WhatsApp modal for full user control & 1-click retry
-        UI.om("instant-wa-modal");
-        if (!cleanPhone && phoneInput) {
-            setTimeout(function(){ phoneInput.focus(); }, 150);
-        }
-    },
-
-    executeInstantWhatsApp: function() {
-        if (!SM.currentInv) {
-            U.toast("No active invoice found", "error");
-            return;
-        }
-        var phoneInput = document.getElementById("iwa-phone-input");
-        var rawPhone = phoneInput ? phoneInput.value.trim() : "";
-        var cleanPhone = rawPhone.replace(/\D/g, '');
-        if (!cleanPhone) {
-            U.toast("Please enter a valid mobile number", "error");
-            if (phoneInput) phoneInput.focus();
-            return;
-        }
-        if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
-
-        if (SM.currentInv) {
-            SM.currentInv.customerPhone = cleanPhone;
-            if (SM.currentInv.receiver && !SM.currentInv.receiver.phone) {
-                SM.currentInv.receiver.phone = cleanPhone;
+            if (typeof html2pdf !== 'undefined') {
+                try {
+                    var html = SM.generatePrintHTML(inv);
+                    var pdfName = 'Invoice_' + invNo + '.pdf';
+                    var parsed = new DOMParser().parseFromString(html, 'text/html').body;
+                    var opt = {
+                        margin: [8, 8, 8, 8],
+                        filename: pdfName,
+                        image: { type: 'jpeg', quality: 0.98 },
+                        html2canvas: { scale: 2, useCORS: true, logging: false, allowTaint: true, backgroundColor: '#ffffff' },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                    };
+                    html2pdf().set(opt).from(parsed).outputPdf('blob').then(async function(blob){
+                        var fd = new FormData();
+                        fd.append('file', blob, pdfName);
+                        fd.append('phone', cleanPhone);
+                        fd.append('caption', 'Anudeep Khadi Bandar - Tax Invoice #' + invNo);
+                        try {
+                            var res = await fetch(waApiBase + '/whatsapp/sendPdf', { method: 'POST', body: fd });
+                            var data = await res.json();
+                            if (data && data.success) {
+                                U.toast("✅ WhatsApp PDF delivered automatically!", "success");
+                            }
+                        } catch(e) {}
+                    }).catch(function(){});
+                } catch(e) {}
             }
-            var curInvs = D.g("invoices") || [];
-            curInvs = curInvs.map(function(i){
-                return String(i.id) === String(SM.currentInv.id) ? SM.currentInv : i;
-            });
-            D.s("invoices", curInvs);
         }
 
-        SM.openDirectWhatsapp(SM.currentInv, cleanPhone);
-        SM.tryBackgroundBot(SM.currentInv, cleanPhone);
-        UI.cl("instant-wa-modal");
-    },
-
-    sendToStoreOwnerWhatsApp: function() {
-        var phoneInput = document.getElementById("iwa-phone-input");
-        if (phoneInput) phoneInput.value = "919441753678";
-        SM.executeInstantWhatsApp();
+        U.toast("📱 WhatsApp: Auto-dispatched for #" + invNo + " (" + cleanPhone + ")", "success");
     },
 
     copyWhatsAppText: function() {
@@ -2071,57 +2010,6 @@ generatePrintHTML:function(inv){
         } else {
             SM.fallbackCopy(text);
         }
-    },
-
-    tryBackgroundBot: function(inv, cleanPhone) {
-        if (!inv) return;
-        var waApiBase = (typeof getWaApiUrl === 'function') ? getWaApiUrl() : ((API_URL && !API_URL.includes("script.google.com")) ? API_URL : '');
-        if (!waApiBase && location.hostname === 'localhost') {
-            waApiBase = 'http://localhost:3000/api';
-        }
-        if (!waApiBase) return;
-
-        var invNo = U.pi(inv.invoiceNo);
-        var textMsg = SM.formatWhatsAppText(inv);
-
-        // 1. Text dispatch via bot
-        fetch(waApiBase + '/whatsapp/sendMessage', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone: cleanPhone, message: textMsg })
-        }).then(function(r){ return r.json(); }).then(function(d){
-            if (d && d.success) {
-                U.toast("🤖 WhatsApp Bot: Invoice delivered to " + cleanPhone, "success");
-            }
-        }).catch(function(){});
-
-        // 2. PDF upload via bot
-        if (typeof html2pdf === 'undefined') return;
-        try {
-            var html = SM.generatePrintHTML(inv);
-            var pdfName = 'Invoice_' + invNo + '.pdf';
-            var parsed = new DOMParser().parseFromString(html, 'text/html').body;
-            var opt = {
-                margin: [8, 8, 8, 8],
-                filename: pdfName,
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true, logging: false, allowTaint: true, backgroundColor: '#ffffff' },
-                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-            };
-            html2pdf().set(opt).from(parsed).outputPdf('blob').then(async function(blob){
-                var fd = new FormData();
-                fd.append('file', blob, pdfName);
-                fd.append('phone', cleanPhone);
-                fd.append('caption', 'Anudeep Khadi Bandar - Tax Invoice #' + invNo);
-                try {
-                    var res = await fetch(waApiBase + '/whatsapp/sendPdf', { method: 'POST', body: fd });
-                    var data = await res.json();
-                    if (data && data.success) {
-                        U.toast("✅ WhatsApp PDF delivered automatically!", "success");
-                    }
-                } catch(e) {}
-            }).catch(function(){});
-        } catch(e) {}
     },
 
     autoSendTelegram: function(inv) {
@@ -2204,9 +2092,9 @@ generatePrintHTML:function(inv){
     autoDispatchAll: function(inv) {
         if (!inv) return;
         SM.currentInv = inv;
-        // ⚡ INSTANT AUTOMATIC BROADCAST TO BOTH TELEGRAM BOT AND WHATSAPP (NO WAITING / NO ASKING)
+        // ⚡ INSTANT AUTOMATIC BROADCAST TO BOTH TELEGRAM BOT AND WHATSAPP (NO NEW TAB / NO MODAL)
         SM.autoSendTelegram(inv);
-        SM.promptInstantWhatsApp(inv);
+        SM.autoSendWhatsapp(inv);
     },
 
     shareInvoiceWhatsapp: function(invId) {
@@ -2220,12 +2108,12 @@ generatePrintHTML:function(inv){
             U.toast("Invoice not found", "error");
             return;
         }
-        SM.promptInstantWhatsApp(inv);
+        SM.autoSendWhatsapp(inv);
     },
 
     manualSendWhatsapp: function() {
         if (!SM.currentInv) return;
-        SM.promptInstantWhatsApp(SM.currentInv);
+        SM.autoSendWhatsapp(SM.currentInv);
     },
 
     sendTelegram: function(){
@@ -3706,8 +3594,8 @@ var RTM = {
 
 /* ===== CLOUD AUTO-UPDATER UI ENGINE ===== */
 var UpdaterUI = {
-    currentVersion: '1.3.5',
-    build: 106,
+    currentVersion: '1.3.6',
+    build: 107,
     hasUpdate: false,
     latestInfo: null,
 
@@ -4309,7 +4197,7 @@ try {
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     window.addEventListener('load', function() {
-        navigator.serviceWorker.register('./sw.js?v=1.3.5').then(function(reg) {
+        navigator.serviceWorker.register('./sw.js?v=1.3.6').then(function(reg) {
             reg.update();
             reg.addEventListener('updatefound', function() {
                 var newWorker = reg.installing;
@@ -4344,19 +4232,6 @@ window.addEventListener('resize', function() {
                 mBarEl.classList.add("visible");
             }
         }
-    }
-});
-
-// Instant WhatsApp modal Enter-key listener
-window.addEventListener('load', function() {
-    var iwaInp = document.getElementById("iwa-phone-input");
-    if (iwaInp) {
-        iwaInp.addEventListener("keydown", function(e) {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                SM.executeInstantWhatsApp();
-            }
-        });
     }
 });
 </script>
