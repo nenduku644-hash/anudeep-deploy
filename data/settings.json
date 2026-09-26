@@ -8,5 +8,8 @@
   "emailSettings": {
     "defaultCC": "",
     "subjectPrefix": "Tax Invoice"
+  },
+  "whatsapp": {
+    "enabled": true
   }
 }

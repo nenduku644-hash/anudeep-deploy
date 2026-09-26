@@ -11,6 +11,14 @@ const qrcode = require('qrcode');
 // Disable TLS verification to resolve corporate/local firewall certificate blocks
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
+// Global resilience handlers to prevent unexpected background exits
+process.on('uncaughtException', (err) => {
+  console.error('[Process] Uncaught Exception:', err.message);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process] Unhandled Rejection:', reason && (reason.message || reason));
+});
+
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/akb_billing';
@@ -154,6 +162,9 @@ const SettingsSchema = new mongoose.Schema({
     token: { type: String, default: '8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac' },
     chatId: { type: String, default: '6877857251' }
   },
+  whatsapp: {
+    enabled: { type: Boolean, default: true }
+  },
   emailSettings: {
     defaultCC: { type: String, default: '' },
     subjectPrefix: { type: String, default: 'Tax Invoice' }
@@ -221,6 +232,9 @@ function getDefaultSettings() {
     telegram: {
       token: '8799482746:AAGiDi8HEoV7KGQNyer4772H_d1qv9fznac',
       chatId: '6877857251'
+    },
+    whatsapp: {
+      enabled: true
     },
     emailSettings: {
       defaultCC: '',
@@ -302,10 +316,16 @@ function initWhatsappClient() {
     const detectedChrome = findChromeExecutable();
     console.log('[WhatsApp] Using Browser Executable:', detectedChrome || 'Bundled Puppeteer Default');
 
+    if (client) {
+      try { client.destroy().catch(() => {}); } catch (_) {}
+      client = null;
+    }
+
     client = new Client({
       authStrategy: new LocalAuth({
         dataPath: path.join(__dirname, '.wwebjs_auth')
       }),
+      qrMaxRetries: 0,
       puppeteer: {
         headless: true,
         executablePath: detectedChrome,
@@ -505,10 +525,10 @@ async function checkRemoteUpdates() {
       };
     }
 
-    // Check if remote build is newer OR if latest commit SHA differs from local commit SHA
-    const hasUpdate = (remoteVer && remoteVer.build && remoteVer.build > (localVer.build || 0)) ||
-                      (latestSha && latestSha !== localVer.commit) ||
-                      (remoteVer && remoteVer.commit && remoteVer.commit !== localVer.commit);
+    // Strictly update ONLY when remote cloud build is higher than local build
+    const remoteBuild = (remoteVer && Number(remoteVer.build)) || 0;
+    const localBuild = Number(localVer.build) || 0;
+    const hasUpdate = remoteBuild > localBuild;
 
     lastUpdateCheck = {
       time: Date.now(),
@@ -1128,13 +1148,20 @@ app.put('/api/settings', async (req, res) => {
       if (req.body.nextInvoiceNo !== undefined) settings.nextInvoiceNo = req.body.nextInvoiceNo;
       if (req.body.inactivityTimeout !== undefined) settings.inactivityTimeout = req.body.inactivityTimeout;
       if (req.body.telegram) settings.telegram = { ...settings.telegram, ...req.body.telegram };
+      if (req.body.whatsapp) settings.whatsapp = { ...settings.whatsapp, ...req.body.whatsapp };
       if (req.body.emailSettings) settings.emailSettings = { ...settings.emailSettings, ...req.body.emailSettings };
       settings.markModified('telegram');
+      settings.markModified('whatsapp');
       settings.markModified('emailSettings');
       await settings.save();
     }
     let cur = readJsonFile('settings', getDefaultSettings());
-    let updated = { ...cur, ...req.body };
+    let updated = {
+      ...cur,
+      ...req.body,
+      telegram: { ...(cur.telegram || {}), ...(req.body.telegram || {}) },
+      whatsapp: { ...(cur.whatsapp || {}), ...(req.body.whatsapp || {}) }
+    };
     writeJsonFile('settings', updated);
 
     res.json({ success: true, settings: settings || updated });
@@ -1480,6 +1507,13 @@ async function autoDispatchBots(inv) {
 
   // 2. DISPATCH TO WHATSAPP BOT (Zero Waiting / Instant)
   try {
+    const settings = readJsonFile('settings', getDefaultSettings());
+    const waSettings = settings.whatsapp || {};
+    if (waSettings.enabled === false) {
+      console.log(`[Auto-WhatsApp] Automatic WhatsApp dispatch is disabled in settings. Skipping invoice #${invNo}`);
+      return;
+    }
+
     if (isWhatsappConnected && client) {
       const recipientPhones = [];
       if (custPhone) recipientPhones.push(custPhone);
